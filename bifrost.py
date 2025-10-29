@@ -215,6 +215,9 @@ class BifrostGUI(Ui_MainWindow):
         # Track homing state
         self.is_homing = False
 
+        # Track jog mode state
+        self.jog_mode_enabled = False
+
         # Initialize command sender (will use ConsoleOutput widget)
         self.command_sender = SerialCommandSender(s0, None)  # Console widget set later after full init
 
@@ -236,6 +239,7 @@ class BifrostGUI(Ui_MainWindow):
 
         self.G0MoveRadioButton.clicked.connect(self.FeedRateBoxHide)
         self.G1MoveRadioButton.clicked.connect(self.FeedRateBoxHide)
+        self.JogModeCheckBox.toggled.connect(self.toggleJogMode)
 
         # Dynamic FK control connections (80% code reduction via loops)
         # Replace 54 individual signal connections with generic handlers
@@ -378,6 +382,15 @@ class BifrostGUI(Ui_MainWindow):
             spinbox = self.joint_spinboxes[joint_name]
             new_value = spinbox.value() + delta
             spinbox.setValue(new_value)
+
+            # JOG MODE: If jog mode is enabled, execute movement immediately
+            if self.jog_mode_enabled:
+                if joint_name == 'Gripper':
+                    self.MoveGripper()
+                    logger.debug(f"[JOG MODE] Gripper moved to {new_value}%")
+                else:
+                    self.FKMoveJoint(joint_name)
+                    logger.debug(f"[JOG MODE] {joint_name} jogged to {new_value}°")
         else:
             logger.warning(f"Unknown joint name: {joint_name}")
 
@@ -510,6 +523,101 @@ class BifrostGUI(Ui_MainWindow):
             self.FeedRateLabel.setEnabled(False)
             self.FeedRateInput.setEnabled(False)
 
+    def toggleJogMode(self, enabled):
+        """
+        Enable/disable jog mode with confirmation and visual feedback
+
+        Args:
+            enabled: True to enable jog mode, False to disable
+        """
+        # If enabling, show confirmation warning
+        if enabled and config.JOG_MODE_WARNING_ENABLED:
+            if not self._showJogModeWarning():
+                # User cancelled, uncheck the checkbox
+                self.JogModeCheckBox.setChecked(False)
+                return
+
+        # Update state
+        self.jog_mode_enabled = enabled
+
+        # Update visual feedback
+        self._updateJogModeVisuals(enabled)
+
+        # Log state change
+        if enabled:
+            logger.warning("JOG MODE ENABLED - Inc/Dec buttons will execute movements immediately!")
+        else:
+            logger.info("Jog mode disabled - Normal operation resumed")
+
+    def _showJogModeWarning(self):
+        """
+        Show confirmation dialog when enabling jog mode
+
+        Returns:
+            True if user confirmed, False if cancelled
+        """
+        msgBox = QtWidgets.QMessageBox()
+        msgBox.setIcon(QtWidgets.QMessageBox.Warning)
+        msgBox.setWindowTitle("Enable Jog Mode")
+        msgBox.setText("⚠ Enable Jog Mode?\n\n"
+                      "When Jog Mode is active:\n"
+                      "• Inc/Dec buttons will IMMEDIATELY execute movements\n"
+                      "• No need to click 'Go' buttons\n"
+                      "• Works for all FK joints (Art1-6, Gripper) and IK controls\n"
+                      "• Uses current G0/G1 and feedrate settings\n\n"
+                      "Make sure the robot workspace is clear before proceeding.")
+        msgBox.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        msgBox.setDefaultButton(QtWidgets.QMessageBox.No)
+
+        result = msgBox.exec_()
+        return result == QtWidgets.QMessageBox.Yes
+
+    def _updateJogModeVisuals(self, enabled):
+        """
+        Update visual feedback for jog mode state
+
+        Args:
+            enabled: True if jog mode is enabled, False otherwise
+        """
+        if enabled:
+            # Highlight jog mode checkbox with warning color
+            self.JogModeCheckBox.setStyleSheet(
+                f"color: rgb(200, 80, 0); background-color: {config.JOG_MODE_VISUAL_HIGHLIGHT}; "
+                "padding: 3px; border-radius: 3px; font-weight: bold;"
+            )
+
+            # Disable/dim all "Go" buttons (they're not needed in jog mode)
+            for joint in ['Art1', 'Art2', 'Art3', 'Art4', 'Art5', 'Art6']:
+                go_button = getattr(self, f'FKGoButton{joint}')
+                go_button.setEnabled(False)
+                go_button.setStyleSheet("background-color: rgb(200, 200, 200);")
+
+            # Disable "Go All" button
+            self.FKGoAllButton.setEnabled(False)
+            self.FKGoAllButton.setStyleSheet("background-color: rgb(200, 200, 200);")
+
+            # Disable gripper go button
+            self.GoButtonGripper.setEnabled(False)
+            self.GoButtonGripper.setStyleSheet("background-color: rgb(200, 200, 200);")
+
+        else:
+            # Restore normal checkbox appearance
+            self.JogModeCheckBox.setStyleSheet("color: rgb(200, 80, 0); font-weight: bold;")
+
+            # Re-enable all "Go" buttons
+            for joint in ['Art1', 'Art2', 'Art3', 'Art4', 'Art5', 'Art6']:
+                go_button = getattr(self, f'FKGoButton{joint}')
+                go_button.setEnabled(True)
+                go_button.setStyleSheet("")
+
+            # Re-enable "Go All" button
+            self.FKGoAllButton.setEnabled(True)
+            self.FKGoAllButton.setStyleSheet("")
+
+            # Re-enable gripper go button
+            self.GoButtonGripper.setEnabled(True)
+            self.GoButtonGripper.setStyleSheet("")
+
 
 # OLD FK methods removed - replaced with generic handlers above
     # (FKMoveArt1-6, FKSliderUpdateArt1-6, FKSpinBoxUpdateArt1-6, FKDec/Inc methods)
@@ -529,7 +637,7 @@ class BifrostGUI(Ui_MainWindow):
         # Calculate differential motor positions using helper
         motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(art5, art6)
 
-        logger.info(f"MoveAll: Art5={art5}° Art6={art6}° → Differential: V={motor_v:.2f}° W={motor_w:.2f}°")
+        logger.info(f"MoveAll: Art5={art5}° Art6={art6}° -> Differential: V={motor_v:.2f}° W={motor_w:.2f}°")
 
         # Build command using command builder
         movement_type, feedrate = CommandBuilder.get_movement_params(self)
@@ -552,7 +660,9 @@ class BifrostGUI(Ui_MainWindow):
     def MoveGripper(self):
         """Move gripper to specified position"""
         pwm_value = self._gripper_percent_to_pwm(self.SpinBoxGripper.value())
-        command = f"M3 S{pwm_value}"
+        # Map 0-255 PWM range to 0-180 servo angle for RepRapFirmware M280 command
+        servo_angle = int((pwm_value / 255.0) * 180.0)
+        command = f"M280 P0 S{servo_angle}"
 
         # Send command
         self.command_sender.send_if_connected(command, error_callback=self.noSerialConnection)
@@ -620,7 +730,27 @@ class BifrostGUI(Ui_MainWindow):
             delta: Amount to add to current value
         """
         spinbox = getattr(self, f'IKInputSpinBox{axis}')
-        spinbox.setValue(spinbox.value() + delta)
+        new_value = spinbox.value() + delta
+        spinbox.setValue(new_value)
+
+        # JOG MODE: If jog mode is enabled, execute movement immediately after IK calculation
+        # The IK calculation will be triggered by the spinbox value change (debounced)
+        # Once IK updates the FK spinboxes, we execute FKMoveAll to move all joints
+        if self.jog_mode_enabled:
+            # Wait briefly for IK calculation to complete (debounce timer), then execute
+            # Use a single-shot timer to execute after IK calculation
+            QtCore.QTimer.singleShot(100, self._executeIKJogMove)
+            logger.debug(f"[JOG MODE] IK {axis} jogged to {new_value}mm, executing move after IK calculation")
+
+    def _executeIKJogMove(self):
+        """Execute movement after IK calculation in jog mode (called by timer)"""
+        if self.jog_mode_enabled:
+            # Check if IK solution is valid (green background)
+            if "200, 255, 200" in self.IkOutputValueFrame.styleSheet():
+                self.FKMoveAll()
+                logger.debug("[JOG MODE] IK solution valid, executing FKMoveAll")
+            else:
+                logger.warning("[JOG MODE] IK solution invalid, movement not executed")
 
 # Sequence Recorder Functions
     def setupSequenceControls(self):
@@ -1011,7 +1141,9 @@ class BifrostGUI(Ui_MainWindow):
         # Move gripper if needed
         if gripper > 0:
             pwm_value = self._gripper_percent_to_pwm(gripper)
-            gripper_cmd = f"M3 S{pwm_value}"
+            # Map 0-255 PWM range to 0-180 servo angle for RepRapFirmware M280 command
+            servo_angle = int((pwm_value / 255.0) * 180.0)
+            gripper_cmd = f"M280 P0 S{servo_angle}"
             self.command_sender.send(gripper_cmd, show_in_console=False)
 
     def saveSequence(self):

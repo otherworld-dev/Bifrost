@@ -98,3 +98,7 @@ VISUALIZATION_CONTROLS_HEIGHT = 200
 
 # Graph update intervals
 GRAPH_UPDATE_INTERVAL_MS = 2000  # milliseconds between 3D visualization updates
+
+# ========== Jog Mode ==========
+JOG_MODE_WARNING_ENABLED = True  # Show confirmation dialog when enabling jog mode
+JOG_MODE_VISUAL_HIGHLIGHT = "rgb(255, 200, 100)"  # Orange background for jog mode indicator

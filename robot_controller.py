@@ -288,8 +288,8 @@ class RobotController:
             self.current_motor_v, self.current_motor_w
         )
         logger.info(f"Differential move calculation for {joint_name}:")
-        logger.info(f"  BEFORE: Motor_V={self.current_motor_v:.2f}° Motor_W={self.current_motor_w:.2f}° → Art5={current_art5:.2f}° Art6={current_art6:.2f}°")
-        logger.info(f"  AFTER:  Motor_V={motor_v:.2f}° Motor_W={motor_w:.2f}° → {joint_name}={target_value:.2f}° {kept_joint}={kept_value:.2f}° ({kept_joint} kept)")
+        logger.info(f"  BEFORE: Motor_V={self.current_motor_v:.2f}° Motor_W={self.current_motor_w:.2f}° -> Art5={current_art5:.2f}° Art6={current_art6:.2f}°")
+        logger.info(f"  AFTER:  Motor_V={motor_v:.2f}° Motor_W={motor_w:.2f}° -> {joint_name}={target_value:.2f}° {kept_joint}={kept_value:.2f}° ({kept_joint} kept)")
 
         return (motor_v, motor_w, kept_value)
 

@@ -469,10 +469,7 @@ class BifrostGUI(Ui_MainWindow):
         # Set command sender for gripper controller
         self.gripper_controller.command_sender = self.command_sender
 
-        # Initialize ExecuteMovementButton visibility (modern GUI only)
-        # Button should be visible when jog mode is off (default state)
-        if hasattr(self, 'ExecuteMovementButton'):
-            self.ExecuteMovementButton.setVisible(True)
+        # ExecuteMovementButton no longer needed - jog mode controls in sidebar
 
     def setupGenericControls(self):
         """

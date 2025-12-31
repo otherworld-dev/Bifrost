@@ -1717,25 +1717,26 @@ class Ui_MainWindow:
 
         # Create hidden spinboxes for joint command values (bifrost.py expects these)
         # The actual display is read-only labels in the axis column
-        self.SpinBoxArt1 = QDoubleSpinBox()
+        # Pass MainWindow as parent to prevent floating windows
+        self.SpinBoxArt1 = QDoubleSpinBox(MainWindow)
         self.SpinBoxArt1.setRange(-180, 180)
         self.SpinBoxArt1.setVisible(False)
-        self.SpinBoxArt2 = QDoubleSpinBox()
+        self.SpinBoxArt2 = QDoubleSpinBox(MainWindow)
         self.SpinBoxArt2.setRange(-90, 90)
         self.SpinBoxArt2.setVisible(False)
-        self.SpinBoxArt3 = QDoubleSpinBox()
+        self.SpinBoxArt3 = QDoubleSpinBox(MainWindow)
         self.SpinBoxArt3.setRange(-90, 90)
         self.SpinBoxArt3.setVisible(False)
-        self.SpinBoxArt4 = QDoubleSpinBox()
+        self.SpinBoxArt4 = QDoubleSpinBox(MainWindow)
         self.SpinBoxArt4.setRange(-180, 180)
         self.SpinBoxArt4.setVisible(False)
-        self.SpinBoxArt5 = QDoubleSpinBox()
+        self.SpinBoxArt5 = QDoubleSpinBox(MainWindow)
         self.SpinBoxArt5.setRange(-90, 90)
         self.SpinBoxArt5.setVisible(False)
-        self.SpinBoxArt6 = QDoubleSpinBox()
+        self.SpinBoxArt6 = QDoubleSpinBox(MainWindow)
         self.SpinBoxArt6.setRange(-180, 180)
         self.SpinBoxArt6.setVisible(False)
-        self.SpinBoxGripper = QSpinBox()
+        self.SpinBoxGripper = QSpinBox(MainWindow)
         self.SpinBoxGripper.setRange(0, 100)
         self.SpinBoxGripper.setVisible(False)
 
@@ -1872,8 +1873,11 @@ class Ui_MainWindow:
         self.IkOutputValueZ = self.inverse_panel.IkOutputValueZ
 
         # Create dummy IK labels/widgets that bifrost.py checks for enabled status
-        self.InverseKinematicsLabel = QLabel()  # Dummy label
-        self.IkOutputValueFrame_dummy = QFrame()  # Dummy frame (separate from the real one)
+        # Pass MainWindow as parent to prevent floating windows
+        self.InverseKinematicsLabel = QLabel(MainWindow)  # Dummy label
+        self.InverseKinematicsLabel.setVisible(False)
+        self.IkOutputValueFrame_dummy = QFrame(MainWindow)  # Dummy frame (separate from the real one)
+        self.IkOutputValueFrame_dummy.setVisible(False)
 
         # TEACH mode widgets
         self.sequencePointsList = self.teach_panel.sequencePointsList

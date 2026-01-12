@@ -1,7 +1,7 @@
 {
     "version": "1.1",
-    "description": "Thor Robot DH Parameters with calibration",
-    "date_modified": "2025-11-27",
+    "description": "Thor Robot DH Parameters",
+    "date_modified": "2026-01-12",
     "links": [
         {
             "link": 1,
@@ -41,7 +41,7 @@
         },
         {
             "link": 5,
-            "theta_offset": 0.0,
+            "theta_offset": 90.0,
             "direction": 1,
             "d": 0.0,
             "a": 0.0,
@@ -54,7 +54,7 @@
             "direction": 1,
             "d": 67.15,
             "a": 0.0,
-            "alpha": 0.0,
+            "alpha": -90.0,
             "description": "Wrist yaw / TCP"
         }
     ]

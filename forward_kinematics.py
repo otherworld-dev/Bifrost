@@ -246,15 +246,14 @@ def compute_all_joint_positions(q1: float, q2: float, q3: float, q4: float, q5: 
         [0,   0,   0, 1]
     ], dtype=np.float64)
 
-    # Link 6: α=0°
-    # Note: For Thor robot, the TCP offset (d6) acts as an 'a' parameter (X translation)
-    # not a 'd' parameter (Z translation). This matches the external Thor DH visualizer.
-    a6 = params[5]['d']  # TCP offset used as 'a' translation
+    # Link 6: uses alpha from config for TCP frame orientation
+    d6 = params[5]['d']
+    ca6, sa6 = np.cos(np.radians(params[5]['alpha'])), np.sin(np.radians(params[5]['alpha']))
     A6 = np.array([
-        [c6, -s6, 0, a6 * c6],
-        [s6,  c6, 0, a6 * s6],
-        [0,   0,  1, 0],
-        [0,   0,  0, 1]
+        [c6, -s6*ca6,  s6*sa6, 0],
+        [s6,  c6*ca6, -c6*sa6, 0],
+        [0,   sa6,     ca6,    d6],
+        [0,   0,       0,      1]
     ], dtype=np.float64)
 
     # Compute cumulative transformations
@@ -365,12 +364,13 @@ def compute_all_joint_transforms(q1: float, q2: float, q3: float, q4: float, q5:
         [0,   0,   0, 1]
     ], dtype=np.float64)
 
-    a6 = params[5]['d']
+    d6 = params[5]['d']
+    ca6, sa6 = np.cos(np.radians(params[5]['alpha'])), np.sin(np.radians(params[5]['alpha']))
     A6 = np.array([
-        [c6, -s6, 0, a6 * c6],
-        [s6,  c6, 0, a6 * s6],
-        [0,   0,  1, 0],
-        [0,   0,  0, 1]
+        [c6, -s6*ca6,  s6*sa6, 0],
+        [s6,  c6*ca6, -c6*sa6, 0],
+        [0,   sa6,     ca6,    d6],
+        [0,   0,       0,      1]
     ], dtype=np.float64)
 
     # Compute cumulative transforms
@@ -420,7 +420,7 @@ def compute_tcp_transform(q1: float, q2: float, q3: float, q4: float, q5: float,
     d1 = params[0]['d']
     a2 = params[1]['a']
     d4 = params[3]['d']
-    a6 = params[5]['d']  # TCP offset used as 'a' translation
+    d6 = params[5]['d']  # TCP offset (d parameter)
 
     # Extract theta offsets and direction, then compute joint angles
     # Direction multipliers (default to 1 for backward compatibility)
@@ -448,6 +448,7 @@ def compute_tcp_transform(q1: float, q2: float, q3: float, q4: float, q5: float,
 
     ca1, sa1 = np.cos(np.radians(params[0]['alpha'])), np.sin(np.radians(params[0]['alpha']))
     ca4, sa4 = np.cos(np.radians(params[3]['alpha'])), np.sin(np.radians(params[3]['alpha']))
+    ca6, sa6 = np.cos(np.radians(params[5]['alpha'])), np.sin(np.radians(params[5]['alpha']))
 
     # Build transformation matrices (same as compute_all_joint_positions)
     A1 = np.array([[c1, -s1*ca1, s1*sa1, 0], [s1, c1*ca1, -c1*sa1, 0], [0, sa1, ca1, d1], [0, 0, 0, 1]], dtype=np.float64)
@@ -455,7 +456,7 @@ def compute_tcp_transform(q1: float, q2: float, q3: float, q4: float, q5: float,
     A3 = np.array([[c3, 0, s3, 0], [s3, 0, -c3, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=np.float64)
     A4 = np.array([[c4, -s4*ca4, s4*sa4, 0], [s4, c4*ca4, -c4*sa4, 0], [0, sa4, ca4, d4], [0, 0, 0, 1]], dtype=np.float64)
     A5 = np.array([[c5, 0, s5, 0], [s5, 0, -c5, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=np.float64)
-    A6 = np.array([[c6, -s6, 0, a6*c6], [s6, c6, 0, a6*s6], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=np.float64)
+    A6 = np.array([[c6, -s6*ca6, s6*sa6, 0], [s6, c6*ca6, -c6*sa6, 0], [0, sa6, ca6, d6], [0, 0, 0, 1]], dtype=np.float64)
 
     return A1 @ A2 @ A3 @ A4 @ A5 @ A6
 

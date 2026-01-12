@@ -518,28 +518,28 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.stl_calibration = get_stl_calibration()
 
         # Color schemes (RGBA format for PyQtGraph)
-        # Thor robot colors - bright orange body with contrasting accents
+        # Thor robot colors - orange body with contrasting accents
         self.colors_active = {
-            'body': (1.0, 0.5, 0.1, 1.0),       # Bright Thor orange
-            'body_dark': (0.95, 0.45, 0.05, 1.0),  # Slightly darker orange
-            'joint': (0.4, 0.4, 0.4, 1.0),     # Medium gray for joint rings
-            'accent': (0.3, 0.3, 0.3, 1.0),    # Dark gray accents
-            'tcp': (1.0, 0.2, 0.2, 1.0),       # Bright red TCP
-            'gripper': (0.5, 0.5, 0.5, 1.0),   # Medium gray gripper
+            'body': (1.0, 0.55, 0.2, 1.0),       # Thor orange
+            'body_dark': (0.95, 0.48, 0.12, 1.0),  # Darker orange
+            'joint': (0.47, 0.47, 0.47, 1.0),   # Medium gray for joint rings
+            'accent': (0.38, 0.38, 0.38, 1.0),  # Dark gray accents
+            'tcp': (1.0, 0.25, 0.25, 1.0),      # Red TCP
+            'gripper': (0.57, 0.57, 0.57, 1.0), # Medium gray gripper
             # Legacy keys for compatibility
-            'link': (1.0, 0.5, 0.1, 1.0),
-            'base': (0.35, 0.35, 0.35, 1.0)
+            'link': (1.0, 0.55, 0.2, 1.0),
+            'base': (0.42, 0.42, 0.42, 1.0)
         }
         self.colors_inactive = {
-            'body': (0.8, 0.5, 0.3, 0.8),       # Muted orange
-            'body_dark': (0.7, 0.45, 0.25, 0.8),
-            'joint': (0.45, 0.45, 0.45, 0.7),
-            'accent': (0.35, 0.35, 0.35, 0.7),
-            'tcp': (0.7, 0.4, 0.4, 0.7),
-            'gripper': (0.55, 0.55, 0.55, 0.7),
+            'body': (0.85, 0.55, 0.35, 0.8),    # Muted orange
+            'body_dark': (0.78, 0.48, 0.28, 0.8),
+            'joint': (0.5, 0.5, 0.5, 0.7),
+            'accent': (0.4, 0.4, 0.4, 0.7),
+            'tcp': (0.75, 0.45, 0.45, 0.7),
+            'gripper': (0.6, 0.6, 0.6, 0.7),
             # Legacy keys
-            'link': (0.8, 0.5, 0.3, 0.8),
-            'base': (0.4, 0.4, 0.4, 0.7)
+            'link': (0.85, 0.55, 0.35, 0.8),
+            'base': (0.45, 0.45, 0.45, 0.7)
         }
 
         # PERFORMANCE OPTIMIZATION: Dirty flag pattern
@@ -552,6 +552,10 @@ class Robot3DCanvas(gl.GLViewWidget):
         # FK calculation cache (avoid redundant calculations)
         self._fk_cache = {}
         self._fk_cache_lock = threading.Lock()
+
+        # Force reload DH parameters at startup to ensure latest values
+        fk.reload_dh_parameters()
+        logger.info("DH parameters loaded at visualizer startup")
 
         # Graphics items (will be created/updated as needed)
         self.robot_arm_item = None
@@ -693,6 +697,13 @@ class Robot3DCanvas(gl.GLViewWidget):
 
     def show_home_position(self):
         """Display robot at home position (all joints at 0)"""
+        # Force reload DH parameters to ensure latest values are used
+        fk.reload_dh_parameters()
+        # Clear FK cache since DH parameters may have changed
+        with self._fk_cache_lock:
+            self._fk_cache.clear()
+        logger.info("DH parameters reloaded and FK cache cleared")
+
         # Clear all items first
         self.clear_all_items()
 
@@ -712,6 +723,11 @@ class Robot3DCanvas(gl.GLViewWidget):
         home_angles = (0, 0, 0, 0, 0, 0)
         home_positions = fk.compute_all_joint_positions(*home_angles)
         self.current_joint_positions = home_positions
+
+        # DEBUG: Log computed positions
+        logger.info(f"Home positions computed:")
+        for i, pos in enumerate(home_positions):
+            logger.info(f"  [{i}]: X={pos[0]:.1f}, Y={pos[1]:.1f}, Z={pos[2]:.1f}")
 
         # Draw robot in inactive colors
         self.draw_robot_arm(home_positions, active=False, joint_angles=home_angles)
@@ -916,7 +932,7 @@ class Robot3DCanvas(gl.GLViewWidget):
                 vertexes=transformed_verts,
                 faces=faces,
                 color=color,
-                shader='shaded',
+                shader='edgeHilight',
                 smooth=True,
                 drawEdges=False
             )
@@ -937,7 +953,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             vertexes=tcp_sphere_verts,
             faces=tcp_sphere_faces,
             color=colors['tcp'],
-            shader='shaded',
+            shader='edgeHilight',
             smooth=True,
             drawEdges=False
         )
@@ -962,6 +978,11 @@ class Robot3DCanvas(gl.GLViewWidget):
             joint_positions: List of 7 tuples [(x,y,z), ...] for joints
             active: If True, use active colors; if False, use inactive (gray)
         """
+        # DEBUG: Print received positions
+        logger.info(f"_draw_robot_primitives received positions:")
+        for i, pos in enumerate(joint_positions):
+            logger.info(f"  [{i}]: X={pos[0]:.1f}, Y={pos[1]:.1f}, Z={pos[2]:.1f}")
+
         # Select color scheme
         colors = self.colors_active if active else self.colors_inactive
 
@@ -1009,7 +1030,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             vertexes=base_verts,
             faces=base_faces,
             color=colors['accent'],
-            shader='shaded',
+            shader='edgeHilight',
             smooth=True,
             drawEdges=False
         )
@@ -1031,7 +1052,7 @@ class Robot3DCanvas(gl.GLViewWidget):
                 vertexes=col_verts,
                 faces=col_faces,
                 color=colors['body'],
-                shader='shaded',
+                shader='edgeHilight',
                 smooth=True,
                 drawEdges=False
             )
@@ -1049,7 +1070,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             vertexes=shoulder_verts,
             faces=shoulder_faces,
             color=colors['body'],
-            shader='shaded',
+            shader='edgeHilight',
             smooth=True,
             drawEdges=False
         )
@@ -1079,7 +1100,7 @@ class Robot3DCanvas(gl.GLViewWidget):
                 vertexes=arm_verts,
                 faces=arm_faces,
                 color=colors['body'],
-                shader='shaded',
+                shader='edgeHilight',
                 smooth=True,
                 drawEdges=False
             )
@@ -1100,7 +1121,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             vertexes=elbow_verts,
             faces=elbow_faces,
             color=colors['body_dark'],
-            shader='shaded',
+            shader='edgeHilight',
             smooth=True,
             drawEdges=False
         )
@@ -1128,7 +1149,7 @@ class Robot3DCanvas(gl.GLViewWidget):
                 vertexes=forearm_verts,
                 faces=forearm_faces,
                 color=colors['body'],
-                shader='shaded',
+                shader='edgeHilight',
                 smooth=True,
                 drawEdges=False
             )
@@ -1154,7 +1175,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             vertexes=wrist_verts,
             faces=wrist_faces,
             color=colors['body_dark'],
-            shader='shaded',
+            shader='edgeHilight',
             smooth=True,
             drawEdges=False
         )
@@ -1175,7 +1196,7 @@ class Robot3DCanvas(gl.GLViewWidget):
                 vertexes=gripper_verts,
                 faces=gripper_faces,
                 color=colors['gripper'],
-                shader='shaded',
+                shader='edgeHilight',
                 smooth=True,
                 drawEdges=False
             )
@@ -1194,7 +1215,7 @@ class Robot3DCanvas(gl.GLViewWidget):
                 vertexes=ring_verts,
                 faces=ring_faces,
                 color=colors['joint'],
-                shader='shaded',
+                shader='edgeHilight',
                 smooth=True,
                 drawEdges=False
             )
@@ -1219,7 +1240,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             vertexes=tcp_sphere_verts,
             faces=tcp_sphere_faces,
             color=colors['tcp'],
-            shader='shaded',
+            shader='edgeHilight',
             smooth=True,
             drawEdges=False
         )
@@ -1349,7 +1370,8 @@ class Robot3DCanvas(gl.GLViewWidget):
 
     def draw_tcp_frame(self, q1, q2, q3, q4, q5, q6, length=40):
         """
-        Draw coordinate frame at TCP showing end effector orientation
+        Draw coordinate frame at TCP showing end effector orientation.
+        Applies gripper calibration rotation to match the actual gripper STL orientation.
 
         Args:
             q1-q6: Joint angles in degrees
@@ -1361,14 +1383,21 @@ class Robot3DCanvas(gl.GLViewWidget):
                 self.removeItem(item)
         self.tcp_frame_items = []
 
-        # Get TCP transformation matrix
-        T = fk.compute_tcp_transform(q1, q2, q3, q4, q5, q6)
+        # Get all joint transforms
+        transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
 
-        # Extract position and rotation
-        tcp_pos = T[0:3, 3]
-        tcp_rot = T[0:3, 0:3]
+        # Use TCP position and orientation (transforms[6] = after all joints)
+        tcp_pos = transforms[6][0:3, 3]
+        tcp_rot = transforms[6][0:3, 0:3]
 
-        # Create frame axes (X, Y, Z in TCP frame)
+        # Apply gripper calibration rotation to match the STL orientation
+        gripper_calibration = self.stl_calibration.get('gripper', {})
+        gripper_rot = gripper_calibration.get('rotation', [0, 0, 0])
+        if any(r != 0 for r in gripper_rot):
+            R_gripper = euler_to_rotation_matrix(*gripper_rot)
+            tcp_rot = tcp_rot @ R_gripper
+
+        # Create frame axes (X, Y, Z in gripper frame)
         x_axis_tcp = tcp_rot @ np.array([length, 0, 0])
         y_axis_tcp = tcp_rot @ np.array([0, length, 0])
         z_axis_tcp = tcp_rot @ np.array([0, 0, length])
@@ -1590,7 +1619,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.workspace_item = gl.GLMeshItem(
             meshdata=mesh_data,
             color=(0, 0, 1, 0.05),  # Very transparent blue
-            shader='shaded',
+            shader='edgeHilight',
             smooth=True,
             drawEdges=True,
             edgeColor=(0, 0, 1, 0.2)

@@ -1403,17 +1403,16 @@ class Robot3DCanvas(gl.GLViewWidget):
         transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
 
         # Use TCP position and orientation (transforms[6] = after all joints)
+        # This is the raw DH joint 6 frame - no calibration applied
         tcp_pos = transforms[6][0:3, 3]
         tcp_rot = transforms[6][0:3, 0:3]
 
-        # Apply gripper calibration rotation to match the STL orientation
-        gripper_calibration = self.stl_calibration.get('gripper', {})
-        gripper_rot = gripper_calibration.get('rotation', [0, 0, 0])
-        if any(r != 0 for r in gripper_rot):
-            R_gripper = euler_to_rotation_matrix(*gripper_rot)
-            tcp_rot = tcp_rot @ R_gripper
+        # Apply correction so Z-axis aligns with joint 6 rotation axis (DH convention)
+        # DH frame has Y as the rotation axis, so rotate +90° around X to make Z the rotation axis
+        R_correction = euler_to_rotation_matrix(90, 0, 0)
+        tcp_rot = tcp_rot @ R_correction
 
-        # Create frame axes (X, Y, Z in gripper frame)
+        # Create frame axes (X, Y, Z in TCP frame)
         x_axis_tcp = tcp_rot @ np.array([length, 0, 0])
         y_axis_tcp = tcp_rot @ np.array([0, length, 0])
         z_axis_tcp = tcp_rot @ np.array([0, 0, length])

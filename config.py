@@ -96,7 +96,7 @@ POSITION_HISTORY_PLOT_WINDOW_SIZE = 100  # Number of recent points to show in re
 MAIN_WINDOW_MIN_WIDTH = 1820
 MAIN_WINDOW_MIN_HEIGHT = 920
 
-# 3D Visualization Panel
+# 3D Visualisation Panel
 VISUALIZATION_PANEL_X = 1210
 VISUALIZATION_PANEL_Y = 10
 VISUALIZATION_PANEL_WIDTH = 600
@@ -108,7 +108,7 @@ VISUALIZATION_CONTROLS_HEIGHT = 200
 
 # Graph update intervals
 # OPTIMIZED: Much faster now that we use GPU transforms instead of mesh recreation
-GRAPH_UPDATE_INTERVAL_MS = 100  # milliseconds between 3D visualization updates (10Hz)
+GRAPH_UPDATE_INTERVAL_MS = 100  # milliseconds between 3D visualisation updates (10Hz)
 
 # ========== Jog Mode ==========
 JOG_MODE_WARNING_ENABLED = False  # Show confirmation dialog when enabling jog mode
@@ -117,5 +117,5 @@ JOG_MODE_VISUAL_HIGHLIGHT = "rgb(255, 200, 100)"  # Orange background for jog mo
 # ========== Coordinate Frames ==========
 FRAMES_CONFIG_FILE = "coordinate_frames.json"  # File for persisting frame definitions
 DEFAULT_TOOL_OFFSET_Z = 67.15  # Default TCP offset (from DH parameter L4)
-FRAME_AXIS_LENGTH = 50  # mm - length of frame axes in 3D visualization
+FRAME_AXIS_LENGTH = 50  # mm - length of frame axes in 3D visualisation
 FRAME_AXIS_LENGTH_TOOL = 35  # mm - shorter axes for tool frames

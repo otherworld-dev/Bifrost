@@ -30,7 +30,7 @@ except ImportError:
 
 
 # =============================================================================
-# STL Mesh Loading for Realistic Robot Visualization
+# STL Mesh Loading for Realistic Robot Visualisation
 # =============================================================================
 
 # STL file mapping: joint index -> filename
@@ -236,7 +236,7 @@ def transform_stl_vertices(vertices, transform_4x4, calibration=None):
 
 
 # =============================================================================
-# Mesh Generation Helpers for Realistic Robot Visualization
+# Mesh Generation Helpers for Realistic Robot Visualisation
 # =============================================================================
 
 def create_cylinder_mesh(radius, height, segments=16):
@@ -265,11 +265,11 @@ def create_cylinder_mesh(radius, height, segments=16):
     top_verts[:, 1] = radius * np.sin(theta)
     top_verts[:, 2] = height / 2
 
-    # Center points for caps
+    # Centre points for caps
     bottom_center = np.array([[0, 0, -height/2]])
     top_center = np.array([[0, 0, height/2]])
 
-    # Combine vertices: bottom ring, top ring, bottom center, top center
+    # Combine vertices: bottom ring, top ring, bottom centre, top centre
     verts = np.vstack([bottom_verts, top_verts, bottom_center, top_center])
 
     faces = []
@@ -497,7 +497,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         # Set widget size
         self.resize(width_px, height_px)
 
-        # Visualization state
+        # Visualisation state
         self.current_joint_positions = None
         self.trajectory_points = []
         self.trajectory_timestamps = []
@@ -512,20 +512,20 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.auto_rotate = False
         self.rotation_angle = 45  # Current azimuth for auto-rotate
 
-        # STL visualization options
+        # STL visualisation options
         self.use_stl = STL_AVAILABLE  # Use STL meshes if available
         self.stl_loaded = False
         self.stl_calibration = get_stl_calibration()
 
-        # Color schemes (RGBA format for PyQtGraph)
-        # Thor robot colors - orange body with contrasting accents
+        # Colour schemes (RGBA format for PyQtGraph)
+        # Thor robot colours - orange body with contrasting accents
         self.colors_active = {
             'body': (1.0, 0.55, 0.2, 1.0),       # Thor orange
             'body_dark': (0.95, 0.48, 0.12, 1.0),  # Darker orange
-            'joint': (0.47, 0.47, 0.47, 1.0),   # Medium gray for joint rings
-            'accent': (0.38, 0.38, 0.38, 1.0),  # Dark gray accents
+            'joint': (0.47, 0.47, 0.47, 1.0),   # Medium grey for joint rings
+            'accent': (0.38, 0.38, 0.38, 1.0),  # Dark grey accents
             'tcp': (1.0, 0.25, 0.25, 1.0),      # Red TCP
-            'gripper': (0.57, 0.57, 0.57, 1.0), # Medium gray gripper
+            'gripper': (0.57, 0.57, 0.57, 1.0), # Medium grey gripper
             # Legacy keys for compatibility
             'link': (1.0, 0.55, 0.2, 1.0),
             'base': (0.42, 0.42, 0.42, 1.0)
@@ -597,7 +597,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         # Show home position immediately
         self.show_home_position()
 
-        logger.info("3D robot canvas initialized with PyQtGraph OpenGL rendering")
+        logger.info("3D robot canvas initialised with PyQtGraph OpenGL rendering")
 
     def setup_3d_view(self):
         """Setup 3D view with camera position, grid, and axes"""
@@ -607,11 +607,11 @@ class Robot3DCanvas(gl.GLViewWidget):
         z_max = workspace['z_max']
 
         # Set camera distance to see whole workspace
-        # PyQtGraph uses distance from center
+        # PyQtGraph uses distance from centre
         distance = max_reach * 2.5
 
-        # Set camera center point above the base (not at origin)
-        # This shifts the view focus up so the robot isn't centered vertically
+        # Set camera centre point above the base (not at origin)
+        # This shifts the view focus up so the robot isn't centred vertically
         center_z = z_max * 0.35  # Focus at ~35% of max height
         self.camera_center = pg.Vector(0, 0, center_z)
 
@@ -639,7 +639,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             self.grid_item = gl.GLGridItem()
             self.grid_item.setSize(grid_size, grid_size)
             self.grid_item.setSpacing(50, 50)  # 50mm grid spacing
-            self.grid_item.setColor(pg.mkColor(50, 50, 50, 200))  # Dark gray grid
+            self.grid_item.setColor(pg.mkColor(50, 50, 50, 200))  # Dark grey grid
             self.grid_item.translate(0, 0, 0)  # At Z=0
             self.addItem(self.grid_item)
 
@@ -702,7 +702,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             self.addItem(y_label)
             self.grid_label_items.append(y_label)
 
-        # Set background color to white
+        # Set background colour to white
         self.setBackgroundColor('w')
 
     def show_home_position(self):
@@ -773,7 +773,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         home_positions = fk.compute_all_joint_positions(*home_angles)
         self.current_joint_positions = home_positions
 
-        # Draw robot in preview colors (inactive/gray)
+        # Draw robot in preview colours (inactive/grey)
         self.draw_robot_arm(home_positions, active=False, joint_angles=home_angles)
 
         # Draw TCP frame at home position
@@ -894,7 +894,7 @@ class Robot3DCanvas(gl.GLViewWidget):
                     pass
         self.robot_mesh_items = []
 
-        # Select color scheme
+        # Select colour scheme
         colors = self.colors_active if active else self.colors_inactive
 
         # STL to transform mapping:
@@ -977,14 +977,14 @@ class Robot3DCanvas(gl.GLViewWidget):
 
         Args:
             joint_positions: List of 7 tuples [(x,y,z), ...] for joints
-            active: If True, use active colors; if False, use inactive (gray)
+            active: If True, use active colours; if False, use inactive (grey)
         """
         # DEBUG: Print received positions
         logger.info(f"_draw_robot_primitives received positions:")
         for i, pos in enumerate(joint_positions):
             logger.info(f"  [{i}]: X={pos[0]:.1f}, Y={pos[1]:.1f}, Z={pos[2]:.1f}")
 
-        # Select color scheme
+        # Select colour scheme
         colors = self.colors_active if active else self.colors_inactive
 
         # Clear existing mesh items
@@ -1543,7 +1543,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             del self.custom_frame_items[name]
 
         # Draw new frames
-        # Color schemes for different frame types
+        # Colour schemes for different frame types
         workpiece_colors = {
             'x': (1.0, 0.3, 0.7, 0.9),  # Magenta-ish
             'y': (0.3, 1.0, 0.7, 0.9),  # Cyan-ish
@@ -1556,7 +1556,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         }
 
         for name, transform in frames.items():
-            # Determine colors based on name pattern
+            # Determine colours based on name pattern
             if 'tool' in name.lower():
                 colors = tool_colors
                 length = 35
@@ -1574,7 +1574,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             self.custom_frame_items[name] = items
 
     def clear_custom_frames(self):
-        """Remove all custom frame visualizations."""
+        """Remove all custom frame visualisations."""
         if hasattr(self, 'custom_frame_items'):
             for name, items in list(self.custom_frame_items.items()):
                 for item in items:
@@ -2070,7 +2070,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         z_max = workspace['z_max']
         distance = max_reach * 2.5
 
-        # Reset camera center above base
+        # Reset camera centre above base
         center_z = z_max * 0.35
         self.camera_center = pg.Vector(0, 0, center_z)
 

@@ -37,7 +37,7 @@ class PositionPlotCanvas(FigureCanvas):
         # Adjust layout
         self.fig.tight_layout(pad=2.0)
 
-        # Joint colors for consistent visualization
+        # Joint colours for consistent visualisation
         self.joint_colors = {
             'art1': '#FF6B6B',  # Red
             'art2': '#4ECDC4',  # Cyan
@@ -51,7 +51,7 @@ class PositionPlotCanvas(FigureCanvas):
         self.lines = {}
         self.joint_names = []
 
-        logger.info("Position plot canvas initialized")
+        logger.info("Position plot canvas initialised")
 
     def setup_plot(self, joint_names):
         """

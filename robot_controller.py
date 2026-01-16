@@ -14,6 +14,7 @@ from typing import Dict, Tuple, Optional, Callable
 import logging
 import config
 import differential_kinematics as diff_kin
+from forward_kinematics import get_direction
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class RobotController:
     """
 
     def __init__(self):
-        """Initialize robot controller with default state"""
+        """Initialise robot controller with default state"""
 
         # Joint configuration: maps joint names to firmware axes
         # This defines the robot's kinematic structure
@@ -110,7 +111,7 @@ class RobotController:
         # Position update tracking
         self.position_update_count = 0
 
-        logger.info("RobotController initialized")
+        logger.info("RobotController initialised")
         self._log_configuration()
 
     def _log_configuration(self) -> None:
@@ -135,7 +136,7 @@ class RobotController:
             if joint_name in self.current_positions:
                 self.current_positions[joint_name] = value
 
-        # Initialize differential motor positions from Art5/Art6
+        # Initialise differential motor positions from Art5/Art6
         initial_art5 = self.current_positions['Art5']
         initial_art6 = self.current_positions['Art6']
         self.current_motor_v, self.current_motor_w = diff_kin.DifferentialKinematics.joint_to_motor(
@@ -210,27 +211,45 @@ class RobotController:
         self.current_motor_v = validated['V']
         self.current_motor_w = validated['W']
 
-        # Calculate joint angles from differential motor positions
-        art5, art6 = diff_kin.DifferentialKinematics.motor_to_joint(
+        # Get direction multipliers from DH parameters
+        # Apply direction to convert motor space back to user space
+        # Since direction is ±1, multiplying by direction inverts the transformation
+        dir1 = get_direction(0)  # Art1
+        dir2 = get_direction(1)  # Art2
+        dir3 = get_direction(2)  # Art3
+        dir4 = get_direction(3)  # Art4
+        dir5 = get_direction(4)  # Art5
+        dir6 = get_direction(5)  # Art6
+
+        # Calculate joint angles from differential motor positions (in motor space)
+        motor_art5, motor_art6 = diff_kin.DifferentialKinematics.motor_to_joint(
             self.current_motor_v, self.current_motor_w
         )
 
-        # Update joint positions
-        self.current_positions['Art1'] = validated['X']
-        self.current_positions['Art2'] = validated['Y']
-        self.current_positions['Art3'] = validated['Z']
-        self.current_positions['Art4'] = validated['U']
+        # Convert motor space to user space by applying direction
+        art5 = motor_art5 * dir5
+        art6 = motor_art6 * dir6
+
+        # Update joint positions (convert motor space to user space)
+        self.current_positions['Art1'] = validated['X'] * dir1
+        self.current_positions['Art2'] = validated['Y'] * dir2
+        self.current_positions['Art3'] = validated['Z'] * dir3
+        self.current_positions['Art4'] = validated['U'] * dir4
         self.current_positions['Art5'] = art5
         self.current_positions['Art6'] = art6
 
-        # Track desired positions
+        # Track desired positions (in user space)
         self.desired_art5 = art5
         self.desired_art6 = art6
 
         # Increment update counter
         self.position_update_count += 1
 
-        # Add calculated values to return dict
+        # Add user-space values to return dict
+        validated['Art1'] = self.current_positions['Art1']
+        validated['Art2'] = self.current_positions['Art2']
+        validated['Art3'] = self.current_positions['Art3']
+        validated['Art4'] = self.current_positions['Art4']
         validated['Art5'] = art5
         validated['Art6'] = art6
 
@@ -341,8 +360,8 @@ if __name__ == "__main__":
     # Create controller
     controller = RobotController()
 
-    # Test 1: Initialize from spinboxes
-    print("\nTest 1: Initialize from spinboxes")
+    # Test 1: Initialise from spinboxes
+    print("\nTest 1: Initialise from spinboxes")
     spinbox_values = {
         'Art1': 0.0,
         'Art2': 90.0,

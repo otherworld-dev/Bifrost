@@ -229,7 +229,7 @@ class FrameManager:
         self._setup_default_frames()
 
     def _setup_default_frames(self):
-        """Initialize with default frame hierarchy"""
+        """Initialise with default frame hierarchy"""
         # World frame - always identity, immutable
         self._frames["world"] = CoordinateFrame(
             name="world",

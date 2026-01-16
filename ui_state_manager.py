@@ -252,7 +252,7 @@ class UIStateManager:
         self._robot_state = state
         changes = {'robot_state': state.value, 'widgets': []}
 
-        # Get color for state
+        # Get colour for state
         color = self.styles.STATE_COLORS.get(state, "rgb(255, 255, 255)")
         style = f"background-color: {color}"
 

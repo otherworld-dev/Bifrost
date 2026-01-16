@@ -525,7 +525,7 @@ class CalibrationPanel(QtWidgets.QWidget):
         self.setup_ui()
         self.load_current_calibration()
 
-        logger.info("Calibration panel initialized")
+        logger.info("Calibration panel initialised")
 
     def setup_ui(self):
         """Create the calibration panel UI"""

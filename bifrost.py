@@ -173,14 +173,14 @@ class BifrostGUI(Ui_MainWindow):
         # Track jog mode state
         self.jog_mode_enabled = True
 
-        # Initialize command sender (will use ConsoleOutput widget)
+        # Initialise command sender (will use ConsoleOutput widget)
         self.command_sender = SerialCommandSender(s0, None)  # Console widget set later after full init
 
-        # Initialize robot controller
+        # Initialise robot controller
         self.robot_controller = RobotController()
-        logger.info("RobotController initialized and integrated with GUI")
+        logger.info("RobotController initialised and integrated with GUI")
 
-        # Initialize movement controller (will set command_sender after full init)
+        # Initialise movement controller (will set command_sender after full init)
         self.movement_controller = MovementController(self.robot_controller, command_sender=None)
 
         self.getSerialPorts()
@@ -318,11 +318,11 @@ class BifrostGUI(Ui_MainWindow):
         self.IkIncButtonZ.setEnabled(True)
         self.IkDecButtonZ.setEnabled(True)
 
-        # Initialize Frame Manager for coordinate frame transformations
+        # Initialise Frame Manager for coordinate frame transformations
         self.frame_manager = FrameManager()
-        logger.info(f"Frame manager initialized with frames: {self.frame_manager.list_frames()}")
+        logger.info(f"Frame manager initialised with frames: {self.frame_manager.list_frames()}")
 
-        # Initialize IK Controller with callbacks and frame manager
+        # Initialise IK Controller with callbacks and frame manager
         self.ik_controller = IKController(
             output_update_callback=self._onIKOutputUpdate,
             spinbox_update_callback=self._onIKSpinboxUpdate,
@@ -331,7 +331,7 @@ class BifrostGUI(Ui_MainWindow):
             frame_manager=self.frame_manager
         )
 
-        # Initialize FK Controller with callbacks
+        # Initialise FK Controller with callbacks
         self.fk_controller = FKController(
             robot_controller=self.robot_controller,
             command_sender=None,  # Will be set after full init
@@ -342,7 +342,7 @@ class BifrostGUI(Ui_MainWindow):
             no_connection_callback=self.noSerialConnection
         )
 
-        # Initialize Gripper Controller with callbacks
+        # Initialise Gripper Controller with callbacks
         self.gripper_controller = GripperController(
             command_sender=None,  # Will be set after full init
             spinbox_update_callback=self._onGripperSpinboxUpdate,
@@ -350,7 +350,7 @@ class BifrostGUI(Ui_MainWindow):
             no_connection_callback=self.noSerialConnection
         )
 
-        # Initialize UI State Manager with callbacks
+        # Initialise UI State Manager with callbacks
         self.ui_state_manager = UIStateManager(
             set_widget_enabled=self._setWidgetEnabled,
             set_widget_style=self._setWidgetStyle,
@@ -358,7 +358,7 @@ class BifrostGUI(Ui_MainWindow):
             set_widget_text=self._setWidgetText
         )
 
-        # Initialize Sequence Controller with callbacks
+        # Initialise Sequence Controller with callbacks
         self.sequence_controller = SequenceController(
             command_sender=None,  # Will be set after full init
             list_update_callback=self._onSequencePointAdded,
@@ -391,9 +391,9 @@ class BifrostGUI(Ui_MainWindow):
 
         # Position history tracking
         self.position_history = pos_hist.PositionHistory(max_size=config.POSITION_HISTORY_MAX_SIZE)
-        logger.info(f"Position history initialized (max_size={config.POSITION_HISTORY_MAX_SIZE}, sample_rate=1/{config.POSITION_HISTORY_SAMPLE_RATE})")
+        logger.info(f"Position history initialised (max_size={config.POSITION_HISTORY_MAX_SIZE}, sample_rate=1/{config.POSITION_HISTORY_SAMPLE_RATE})")
 
-        # Initialize position display controller with callbacks
+        # Initialise position display controller with callbacks
         self.position_display_controller = PositionDisplayController(
             robot_controller=self.robot_controller,
             position_history=self.position_history,
@@ -402,7 +402,7 @@ class BifrostGUI(Ui_MainWindow):
             endstop_update_callback=self._onEndstopUpdate
         )
 
-        # Initialize Serial Response Router with callbacks
+        # Initialise Serial Response Router with callbacks
         self.serial_response_router = SerialResponseRouter(
             position_handler=self.updateFKPosDisplay,
             endstop_handler=self.updateEndstopDisplay,
@@ -414,7 +414,7 @@ class BifrostGUI(Ui_MainWindow):
             trigger_sync=self._triggerCommandSync
         )
 
-        # Initialize Visualization Controller with callbacks
+        # Initialise Visualisation Controller with callbacks
         self.visualization_controller = VisualizationController(
             position_history=self.position_history,
             update_canvas_callback=self._updateVisualizationCanvas,
@@ -426,7 +426,7 @@ class BifrostGUI(Ui_MainWindow):
             reload_dh_parameters=self._reloadDHParameters
         )
 
-        # Initialize Position History Manager with callbacks
+        # Initialise Position History Manager with callbacks
         self.position_history_manager = PositionHistoryManager(
             position_history=self.position_history,
             get_save_filename=self._getSaveFilename,
@@ -490,7 +490,7 @@ class BifrostGUI(Ui_MainWindow):
         # This reference is kept for backward compatibility with existing GUI methods
         self.joint_config = self.robot_controller.joint_config
 
-        logger.info("Generic increment/decrement controls initialized (using RobotController config)")
+        logger.info("Generic increment/decrement controls initialised (using RobotController config)")
 
     def adjustJointValue(self, joint_name, delta):
         """
@@ -700,7 +700,7 @@ class BifrostGUI(Ui_MainWindow):
             logger.error(f"Error reloading DH parameters: {e}")
 
     def on_dh_preview_changed(self):
-        """Handle DH preview signal - update visualization with current DH panel values"""
+        """Handle DH preview signal - update visualisation with current DH panel values"""
         try:
             if hasattr(self, 'dh_panel') and hasattr(self, 'position_canvas'):
                 # Enable DH preview mode to prevent timer-based updates from overwriting
@@ -708,7 +708,7 @@ class BifrostGUI(Ui_MainWindow):
 
                 # Get current parameters from DH panel
                 params = self.dh_panel.get_parameters()
-                # Update visualization with preview
+                # Update visualisation with preview
                 self.position_canvas.preview_dh_parameters(params)
                 logger.debug("DH preview updated")
         except Exception as e:
@@ -1019,28 +1019,28 @@ class BifrostGUI(Ui_MainWindow):
         self.sequenceLoadButton.setText("Load Sequence")
         self.sequenceLoadButton.pressed.connect(self.loadSequence)
 
-        logger.info("Sequence recorder controls initialized")
+        logger.info("Sequence recorder controls initialised")
 
     def setupEndstopDisplays(self):
-        """Initialize references to endstop labels (defined in gui.py)"""
+        """Initialise references to endstop labels (defined in gui.py)"""
         # Endstop labels are inline with articulation controls in gui.py
         # Labels: endstopLabelArt1-6 correspond to axes X, Y, Z, U, V, W
-        logger.info("Endstop status displays initialized (inline with articulation controls)")
+        logger.info("Endstop status displays initialised (inline with articulation controls)")
 
     def setupPositionHistoryControls(self):
-        """Create embedded 3D robot visualization and controls"""
+        """Create embedded 3D robot visualisation and controls"""
         from robot_3d_visualizer import Robot3DCanvas
 
-        # Create group box for embedded 3D visualization (right side of window)
+        # Create group box for embedded 3D visualisation (right side of window)
         self.positionHistoryGroupBox = QtWidgets.QGroupBox(self.centralwidget)
         self.positionHistoryGroupBox.setGeometry(QtCore.QRect(1210, 10, 600, 900))
-        self.positionHistoryGroupBox.setTitle("3D Robot Visualization")
+        self.positionHistoryGroupBox.setTitle("3D Robot Visualisation")
 
         # Embed 3D matplotlib canvas
         self.position_canvas = Robot3DCanvas(self.positionHistoryGroupBox, width=5.8, height=6.5, dpi=100)
         self.position_canvas.setGeometry(QtCore.QRect(10, 25, 580, 650))
 
-        # Controls panel below 3D visualization
+        # Controls panel below 3D visualisation
         self.historyControlsFrame = QtWidgets.QFrame(self.positionHistoryGroupBox)
         self.historyControlsFrame.setGeometry(QtCore.QRect(10, 685, 580, 200))
         self.historyControlsFrame.setFrameShape(QtWidgets.QFrame.StyledPanel)
@@ -1107,21 +1107,21 @@ class BifrostGUI(Ui_MainWindow):
         # Make the group box visible
         self.positionHistoryGroupBox.show()
 
-        # Start auto-update timer for 3D visualization
-        # OPTIMIZED: matplotlib rendering is expensive
-        # Dirty flag pattern in visualizer prevents unnecessary redraws
+        # Start auto-update timer for 3D visualisation
+        # OPTIMISED: matplotlib rendering is expensive
+        # Dirty flag pattern in visualiser prevents unnecessary redraws
         self.graph_update_timer = QtCore.QTimer()
         self.graph_update_timer.timeout.connect(self.updateEmbeddedGraph)
         self.graph_update_timer.start(config.GRAPH_UPDATE_INTERVAL_MS)
 
-        logger.info(f"Embedded 3D robot visualization initialized ({config.GRAPH_UPDATE_INTERVAL_MS}ms update interval)")
+        logger.info(f"Embedded 3D robot visualisation initialised ({config.GRAPH_UPDATE_INTERVAL_MS}ms update interval)")
 
     def setupModern3DVisualization(self):
-        """Setup 3D visualization for modern GUI (compact controls in robot state panel)"""
+        """Setup 3D visualisation for modern GUI (compact controls in robot state panel)"""
         # Canvas is already created in gui_modern.py and mapped via self.position_canvas
         # Just need to start the update timer
 
-        # Start auto-update timer for 3D visualization
+        # Start auto-update timer for 3D visualisation
         # OPTIMIZED: matplotlib rendering is expensive
         # Dirty flag pattern in visualizer prevents unnecessary redraws
         self.graph_update_timer = QtCore.QTimer()
@@ -1137,7 +1137,7 @@ class BifrostGUI(Ui_MainWindow):
         # Use QTimer.singleShot to connect after event loop processes pending events
         QtCore.QTimer.singleShot(100, self._connectDHPanelSignals)
 
-        logger.info(f"Modern 3D visualization initialized ({config.GRAPH_UPDATE_INTERVAL_MS}ms update interval)")
+        logger.info(f"Modern 3D visualisation initialised ({config.GRAPH_UPDATE_INTERVAL_MS}ms update interval)")
 
     def _connectDHPanelSignals(self):
         """Connect DH panel signals - deferred to ensure widgets are ready"""
@@ -1154,11 +1154,11 @@ class BifrostGUI(Ui_MainWindow):
 
     def _onModeChanged(self, mode_index):
         """Handle mode switching - exit DH preview mode when leaving DH panel"""
-        # Delegate to visualization controller
+        # Delegate to visualisation controller
         self.visualization_controller.on_mode_changed(mode_index, dh_mode_index=5)
 
     def updateModern3DVisualization(self):
-        """Update the modern GUI 3D visualization - delegates to VisualizationController"""
+        """Update the modern GUI 3D visualisation - delegates to VisualizationController"""
         if not hasattr(self, 'position_canvas'):
             logger.warning("updateModern3DVisualization: position_canvas not found")
             return
@@ -1166,14 +1166,14 @@ class BifrostGUI(Ui_MainWindow):
         self.visualization_controller.update_modern_visualization()
 
     def updateEmbeddedGraph(self):
-        """Update the embedded 3D robot visualization - delegates to VisualizationController"""
+        """Update the embedded 3D robot visualisation - delegates to VisualizationController"""
         if not hasattr(self, 'position_canvas'):
             return
 
         self.visualization_controller.update_embedded_visualization()
 
     def resetVisualizationView(self):
-        """Reset 3D visualization view to default - delegates to VisualizationController"""
+        """Reset 3D visualisation view to default - delegates to VisualizationController"""
         self.visualization_controller.reset_view()
 
     def exportPositionHistory(self):
@@ -1559,7 +1559,7 @@ class BifrostGUI(Ui_MainWindow):
             label = axis_to_label[axis]
             # Check if this is a new-style indicator (AxisRow uses colored dots)
             if hasattr(self, 'axis_column'):
-                # New axis column uses indicator dots - set color based on status
+                # New axis column uses indicator dots - set colour based on status
                 # Green = OK/not triggered, Red = triggered
                 is_triggered = "255, 200, 200" in style or "triggered" in text.lower()
                 if is_triggered:
@@ -1631,7 +1631,7 @@ class BifrostGUI(Ui_MainWindow):
             slider.setValue(slider_value)
 
     def _onFKVisualizationUpdate(self, joint_angles):
-        """Callback to update 3D visualization from FK controller"""
+        """Callback to update 3D visualisation from FK controller"""
         if hasattr(self, 'position_canvas') and self.position_canvas:
             self.position_canvas.update_robot(joint_angles)
 
@@ -1671,7 +1671,7 @@ class BifrostGUI(Ui_MainWindow):
 
     # Callback methods for VisualizationController
     def _updateVisualizationCanvas(self, history, window_size, options):
-        """Callback to update 3D visualization canvas"""
+        """Callback to update 3D visualisation canvas"""
         if hasattr(self, 'position_canvas') and self.position_canvas:
             try:
                 self.position_canvas.update_visualization(history, window_size, options)

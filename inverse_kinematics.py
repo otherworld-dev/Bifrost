@@ -176,12 +176,12 @@ def solve_ik_position(x: float, y: float, z: float) -> IKSolution:
 
     logger.info(f"IK: Solving for target position X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
 
-    # Calculate wrist center point (Pm) - assuming tool points down
+    # Calculate wrist centre point (Pm) - assuming tool points down
     Pm_x = x
     Pm_y = y
-    Pm_z = z + L4  # Move up by L4 to get wrist center
+    Pm_z = z + L4  # Move up by L4 to get wrist centre
 
-    logger.debug(f"IK: Wrist center (Pm) calculated at X={Pm_x:.2f}, Y={Pm_y:.2f}, Z={Pm_z:.2f}")
+    logger.debug(f"IK: Wrist centre (Pm) calculated at X={Pm_x:.2f}, Y={Pm_y:.2f}, Z={Pm_z:.2f}")
 
     # Solve for first 3 joints using shared helper
     q1, q2, q3, _, valid, error_msg = _solve_first_3_joints(Pm_x, Pm_y, Pm_z)
@@ -219,13 +219,13 @@ def solve_ik_full(x: float, y: float, z: float, roll: float = 0, pitch: float = 
     R_tcp = euler_to_rotation_matrix(roll, pitch, yaw)
     logger.debug(f"IK 6-DOF: TCP rotation matrix:\n{R_tcp}")
 
-    # Step 2: Calculate wrist center point (Pm) using orientation
+    # Step 2: Calculate wrist centre point (Pm) using orientation
     # Pm = TCP_position - L4 * TCP_z_axis
     tcp_z_axis = R_tcp[:, 2]  # Third column of rotation matrix
     Pm = np.array([x, y, z]) - L4 * tcp_z_axis
 
     Pm_x, Pm_y, Pm_z = Pm
-    logger.debug(f"IK 6-DOF: Wrist center (Pm) at X={Pm_x:.2f}, Y={Pm_y:.2f}, Z={Pm_z:.2f}")
+    logger.debug(f"IK 6-DOF: Wrist centre (Pm) at X={Pm_x:.2f}, Y={Pm_y:.2f}, Z={Pm_z:.2f}")
 
     # Step 3: Solve for first 3 joints using shared helper
     q1, q2, q3, q3_rad, valid, error_msg = _solve_first_3_joints(Pm_x, Pm_y, Pm_z)

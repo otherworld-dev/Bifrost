@@ -122,7 +122,7 @@ class PositionHistory:
         self.start_time = time.time()
         self.recording = True
 
-        logger.info(f"Position history initialized (max_size={max_size})")
+        logger.info(f"Position history initialised (max_size={max_size})")
 
     def add_snapshot(self, **joint_positions):
         """

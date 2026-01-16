@@ -82,7 +82,7 @@ class PositionDisplayController:
     It uses callbacks to update the GUI, keeping display logic decoupled.
     """
 
-    # State color mapping for visual feedback
+    # State colour mapping for visual feedback
     STATE_COLORS = {
         'Idle': 'rgb(0, 255, 0)',      # Green - ready
         'Run': 'rgb(0, 255, 0)',       # Green - running
@@ -91,7 +91,7 @@ class PositionDisplayController:
         'Hold': 'rgb(255, 0, 0)',      # Red - stopped
     }
 
-    # Endstop style colors
+    # Endstop style colours
     ENDSTOP_STYLES = {
         'ok': "background-color: rgb(200, 255, 200); padding: 2px; border-radius: 3px;",
         'triggered': "background-color: rgb(255, 200, 200); padding: 2px; border-radius: 3px;",
@@ -357,7 +357,7 @@ class PositionDisplayController:
         return current_time - self.last_gui_update_time >= config.GUI_UPDATE_INTERVAL
 
     def get_state_color(self, state: str) -> str:
-        """Get color for a given state."""
+        """Get colour for a given state."""
         return self.STATE_COLORS.get(state, 'rgb(255, 255, 255)')
 
     def get_endstop_style(self, style_class: str) -> str:

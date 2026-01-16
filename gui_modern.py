@@ -39,7 +39,7 @@ class TableItemLabelWrapper:
         return self.table_item.text()
 
     def setStyleSheet(self, stylesheet):
-        """Handle stylesheet by setting background color for table items"""
+        """Handle stylesheet by setting background colour for table items"""
         # Extract background-color from stylesheet
         if "background-color" in stylesheet:
             # Simple parsing for common patterns
@@ -444,7 +444,7 @@ class AxisRow(QFrame):
             self.value_label.setText(f"{value:.1f}")
 
     def set_endstop_status(self, triggered):
-        """Update endstop indicator color"""
+        """Update endstop indicator colour"""
         if triggered:
             self.endstop_indicator.setStyleSheet("font-size: 7pt; color: #f44336;")  # Red
         else:
@@ -455,7 +455,7 @@ class AxisRow(QFrame):
         if matched:
             self.position_indicator.setStyleSheet("font-size: 7pt; color: #4CAF50;")  # Green
         else:
-            self.position_indicator.setStyleSheet("font-size: 7pt; color: #888;")  # Gray
+            self.position_indicator.setStyleSheet("font-size: 7pt; color: #888;")  # Grey
 
 
 class AxisControlColumn(QFrame):
@@ -888,7 +888,7 @@ class AxisControlColumn(QFrame):
 
 
 class RobotStatePanel(QFrame):
-    """Right panel - always visible robot state with 3D visualization and axis controls"""
+    """Right panel - always visible robot state with 3D visualisation and axis controls"""
 
     def __init__(self):
         super().__init__()
@@ -897,11 +897,11 @@ class RobotStatePanel(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # Main content: 3D visualization (left, expanding) + Axis controls (right, fixed)
+        # Main content: 3D visualisation (left, expanding) + Axis controls (right, fixed)
         main_row = QHBoxLayout()
         main_row.setSpacing(5)
 
-        # 3D visualization - takes most space
+        # 3D visualisation - takes most space
         viz_frame = QFrame()
         viz_layout = QVBoxLayout(viz_frame)
         viz_layout.setContentsMargins(0, 0, 0, 0)
@@ -911,7 +911,7 @@ class RobotStatePanel(QFrame):
         self.robot_3d_canvas.setMinimumHeight(450)
         viz_layout.addWidget(self.robot_3d_canvas, 1)
 
-        # Visualization controls at bottom of 3D view
+        # Visualisation controls at bottom of 3D view
         viz_controls = QHBoxLayout()
         viz_controls.setSpacing(8)
         viz_controls.setContentsMargins(0, 0, 0, 0)
@@ -1036,7 +1036,7 @@ class JogModePanel(QFrame):
         super().__init__()
         self.setFrameShape(QFrame.StyledPanel)
         self.setMinimumSize(380, 600)  # Increased from 400 to 600 for more height
-        self.setStyleSheet("JogModePanel { background-color: #f5f5f5; }")  # Light gray background
+        self.setStyleSheet("JogModePanel { background-color: #f5f5f5; }")  # Light grey background
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -1165,7 +1165,7 @@ class InverseModePanel(QFrame):
         self.IkDecButtonX.setMinimumSize(60, 60)
         pad_layout.addWidget(self.IkDecButtonX, 1, 0)
 
-        # Center label
+        # Centre label
         center_label = QLabel("[XYZ]")
         center_label.setAlignment(Qt.AlignCenter)
         center_label.setStyleSheet("border: 2px solid #999; border-radius: 5px; font-weight: bold;")
@@ -1817,7 +1817,7 @@ class Ui_MainWindow:
         self.FKSliderGripper.setVisible(False)
         self.SliderGripper = self.FKSliderGripper
 
-        # 3D visualization canvas and controls
+        # 3D visualisation canvas and controls
         self.position_canvas = self.robot_state_panel.robot_3d_canvas
         self.show_trajectory_check = self.robot_state_panel.show_trajectory_check
         self.auto_rotate_check = self.robot_state_panel.auto_rotate_check

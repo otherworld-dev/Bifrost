@@ -26,7 +26,7 @@ class SerialManager:
     """
 
     def __init__(self):
-        """Initialize serial manager with command queue."""
+        """Initialise serial manager with command queue."""
         self.serial = serial.Serial()
         self.lock = threading.Lock()
         # Non-blocking command queue (thread-safe)

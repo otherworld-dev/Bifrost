@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DisplayOptions:
-    """Container for visualization display options"""
+    """Container for visualisation display options"""
     show_robot: bool = True
     show_trajectory: bool = False
     show_base_frame: bool = True
@@ -57,7 +57,7 @@ class DisplayOptions:
 
 @dataclass
 class VisualizationState:
-    """Container for visualization state"""
+    """Container for visualisation state"""
     dh_preview_mode: bool = False
     update_count: int = 0
     last_position_count: int = 0
@@ -65,9 +65,9 @@ class VisualizationState:
 
 class VisualizationController:
     """
-    Controls 3D robot visualization updates.
+    Controls 3D robot visualisation updates.
 
-    This class separates visualization logic from GUI concerns,
+    This class separates visualisation logic from GUI concerns,
     using callbacks for all widget interactions.
     """
 

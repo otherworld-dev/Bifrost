@@ -118,7 +118,7 @@ class FrameManagementPanel(QFrame):
         controller.on_workpieces_updated = self._on_workpieces_updated
         controller.on_teaching_progress = self._on_teaching_progress
 
-        # Initialize UI state
+        # Initialise UI state
         self._refresh_all_lists()
 
     def _setup_ui(self):

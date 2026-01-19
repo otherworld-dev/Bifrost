@@ -286,10 +286,10 @@ class BifrostGUI(Ui_MainWindow):
 
         self.SerialPortRefreshButton.pressed.connect(self.getSerialPorts)
         self.ConnectButton.pressed.connect(self.connectSerial)
+        self.SimulationModeCheckBox.toggled.connect(self.toggleSimulationMode)
 
-        # Disable port refresh button in simulation mode
-        if config.USE_SIMULATION_MODE:
-            self.SerialPortRefreshButton.setEnabled(False)
+        # Set initial simulation mode state from config
+        self.SimulationModeCheckBox.setChecked(config.USE_SIMULATION_MODE)
 
         # Connect console input signals after replacing with HistoryLineEdit
         self.ConsoleButtonSend.pressed.connect(self.sendSerialCommand)
@@ -1366,7 +1366,7 @@ class BifrostGUI(Ui_MainWindow):
         self.SerialPortComboBox.clear()
 
         # In simulation mode, show "SIMULATION" as the only option
-        if config.USE_SIMULATION_MODE:
+        if self.SimulationModeCheckBox.isChecked():
             self.SerialPortComboBox.addItem("SIMULATION")
             self.SerialPortComboBox.setEnabled(False)  # Disable selection in simulation mode
             logger.info("Simulation mode: port selection disabled")
@@ -1385,6 +1385,47 @@ class BifrostGUI(Ui_MainWindow):
                     logger.warning(f"Detected port {robot_port} not found in combo box")
             else:
                 logger.info("No robot port auto-detected, please select manually")
+
+    def toggleSimulationMode(self, enabled):
+        """Toggle between simulation and real hardware mode"""
+        # If connected, must disconnect first
+        if self.connection_manager.is_connected:
+            QtWidgets.QMessageBox.warning(
+                None, "Mode Switch",
+                "Please disconnect before switching modes."
+            )
+            # Revert checkbox state
+            self.SimulationModeCheckBox.blockSignals(True)
+            self.SimulationModeCheckBox.setChecked(not enabled)
+            self.SimulationModeCheckBox.blockSignals(False)
+            return
+
+        # Create new serial manager (simulated or real)
+        global s0
+        if enabled:
+            logger.info("Switching to SIMULATION mode")
+            s0 = SimulatedSerialManager()
+            self.SerialPortComboBox.setEnabled(False)
+            self.SerialPortRefreshButton.setEnabled(False)
+        else:
+            logger.info("Switching to REAL HARDWARE mode")
+            s0 = SerialManager()
+            self.SerialPortComboBox.setEnabled(True)
+            self.SerialPortRefreshButton.setEnabled(True)
+
+        # Update connection manager with new serial manager
+        self.connection_manager = ConnectionManager(s0)
+        self.connection_manager.set_serial_thread_class(SerialThreadClass)
+
+        # Reconnect connection manager signals
+        self.connection_manager.connected.connect(self._onConnectionSuccess)
+        self.connection_manager.error.connect(self._onConnectionError)
+        self.connection_manager.disconnected.connect(self.serialDisconnected)
+
+        # Refresh serial ports
+        self.getSerialPorts()
+
+        logger.info(f"Mode switched: simulation_mode={enabled}")
 
     def connectSerial(self):
         """Connect to or disconnect from serial port"""
@@ -1441,7 +1482,7 @@ class BifrostGUI(Ui_MainWindow):
         QtCore.QTimer.singleShot(50, self.requestInitialPosition)
 
         # Display appropriate connection message
-        if config.USE_SIMULATION_MODE:
+        if self.SimulationModeCheckBox.isChecked():
             logger.info("=== CONNECTED TO SIMULATED ROBOT ===")
             logger.info("Simulation mode active - no hardware required")
             # Update console to show simulation mode

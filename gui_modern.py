@@ -204,6 +204,13 @@ class ConnectionBar(QFrame):
         self.RobotStateDisplay.setStyleSheet("background-color: rgb(255, 0, 0); font-weight: bold; padding: 3px;")
         layout.addWidget(self.RobotStateDisplay)
 
+        layout.addWidget(QLabel("|"))
+
+        # Simulation mode checkbox
+        self.SimulationModeCheckBox = QCheckBox("Simulation Mode")
+        self.SimulationModeCheckBox.setToolTip("Enable to use simulated robot (no hardware required)")
+        layout.addWidget(self.SimulationModeCheckBox)
+
         layout.addStretch()
 
         # Connect/Disconnect button
@@ -1709,6 +1716,7 @@ class Ui_MainWindow:
         self.SerialPortRefreshButton = self.top_bar.SerialPortRefreshButton
         self.BaudRateComboBox = self.top_bar.BaudRateComboBox
         self.RobotStateDisplay = self.top_bar.RobotStateDisplay
+        self.SimulationModeCheckBox = self.top_bar.SimulationModeCheckBox
         self.ConnectButton = self.top_bar.ConnectButton
         self.EmergencyStopButton = self.top_bar.EmergencyStopButton
         self.SettingsButton = self.top_bar.SettingsButton

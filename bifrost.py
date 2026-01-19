@@ -1407,20 +1407,45 @@ class BifrostGUI(Ui_MainWindow):
             s0 = SimulatedSerialManager()
             self.SerialPortComboBox.setEnabled(False)
             self.SerialPortRefreshButton.setEnabled(False)
+
+            # Create wrapper class for SimulatedSerialThread
+            class DynamicSimulatedThreadClass(SimulatedSerialThread):
+                def __init__(self, gui_instance=None, parent=None):
+                    super().__init__(serial_manager=s0, parent=parent)
+                    self.gui_instance = gui_instance
+
+            thread_class = DynamicSimulatedThreadClass
         else:
             logger.info("Switching to REAL HARDWARE mode")
             s0 = SerialManager()
             self.SerialPortComboBox.setEnabled(True)
             self.SerialPortRefreshButton.setEnabled(True)
 
-        # Update connection manager with new serial manager
+            # Create wrapper class for SerialThread
+            class DynamicRealThreadClass(SerialThread):
+                def __init__(self, gui_instance=None, parent=None):
+                    super().__init__(serial_manager=s0, parent=parent)
+                    self.gui_instance = gui_instance
+
+            thread_class = DynamicRealThreadClass
+
+        # Update connection manager with new serial manager and thread class
         self.connection_manager = ConnectionManager(s0)
-        self.connection_manager.set_serial_thread_class(SerialThreadClass)
+        self.connection_manager.set_serial_thread_class(thread_class)
 
         # Reconnect connection manager signals
         self.connection_manager.connected.connect(self._onConnectionSuccess)
         self.connection_manager.error.connect(self._onConnectionError)
         self.connection_manager.disconnected.connect(self.serialDisconnected)
+
+        # Update command sender to use new serial manager
+        self.command_sender.serial_manager = s0
+        logger.debug("Command sender updated with new serial manager")
+
+        # Update movement controller command sender callback
+        if hasattr(self, 'movement_controller'):
+            self.movement_controller.command_sender = self.command_sender.send_if_connected
+            logger.debug("Movement controller command sender updated")
 
         # Refresh serial ports
         self.getSerialPorts()

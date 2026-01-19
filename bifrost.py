@@ -45,6 +45,10 @@ import json
 import logging
 import numpy as np
 
+# Conditional imports for simulation mode
+if config.USE_SIMULATION_MODE:
+    from simulated_hardware import SimulatedSerialManager, SimulatedSerialThread
+
 # Configure logging for debugging using config
 # Only log to file, not to console
 logging.basicConfig(
@@ -62,8 +66,13 @@ load_gripper_calibration_on_startup()
 # This application is designed for RepRapFirmware (RRF) only
 # All parsing patterns are now in parsing_patterns.py module
 
-# Global serial manager instance
-s0 = SerialManager()
+# Global serial manager instance (real or simulated based on config)
+if config.USE_SIMULATION_MODE:
+    logger.info("=== STARTING IN SIMULATION MODE ===")
+    logger.info("No hardware required - using simulated robot")
+    s0 = SimulatedSerialManager()
+else:
+    s0 = SerialManager()
 
 class HistoryLineEdit(QtWidgets.QLineEdit):
     """QLineEdit with command history navigation via up/down arrows"""
@@ -277,7 +286,11 @@ class BifrostGUI(Ui_MainWindow):
 
         self.SerialPortRefreshButton.pressed.connect(self.getSerialPorts)
         self.ConnectButton.pressed.connect(self.connectSerial)
-    
+
+        # Disable port refresh button in simulation mode
+        if config.USE_SIMULATION_MODE:
+            self.SerialPortRefreshButton.setEnabled(False)
+
         # Connect console input signals after replacing with HistoryLineEdit
         self.ConsoleButtonSend.pressed.connect(self.sendSerialCommand)
         self.ConsoleInput.returnPressed.connect(self.sendSerialCommand)
@@ -1351,20 +1364,27 @@ class BifrostGUI(Ui_MainWindow):
     def getSerialPorts(self):
         """Refresh available serial ports in combo box"""
         self.SerialPortComboBox.clear()
-        available_ports = self.connection_manager.get_available_ports()
-        self.SerialPortComboBox.addItems(available_ports)
 
-        # Auto-detect and select the robot's COM port
-        robot_port = self.connection_manager.get_recommended_port()
-        if robot_port:
-            index = self.SerialPortComboBox.findText(robot_port)
-            if index >= 0:
-                self.SerialPortComboBox.setCurrentIndex(index)
-                logger.info(f"Auto-detected robot port: {robot_port}")
-            else:
-                logger.warning(f"Detected port {robot_port} not found in combo box")
+        # In simulation mode, show "SIMULATION" as the only option
+        if config.USE_SIMULATION_MODE:
+            self.SerialPortComboBox.addItem("SIMULATION")
+            self.SerialPortComboBox.setEnabled(False)  # Disable selection in simulation mode
+            logger.info("Simulation mode: port selection disabled")
         else:
-            logger.info("No robot port auto-detected, please select manually")
+            available_ports = self.connection_manager.get_available_ports()
+            self.SerialPortComboBox.addItems(available_ports)
+
+            # Auto-detect and select the robot's COM port
+            robot_port = self.connection_manager.get_recommended_port()
+            if robot_port:
+                index = self.SerialPortComboBox.findText(robot_port)
+                if index >= 0:
+                    self.SerialPortComboBox.setCurrentIndex(index)
+                    logger.info(f"Auto-detected robot port: {robot_port}")
+                else:
+                    logger.warning(f"Detected port {robot_port} not found in combo box")
+            else:
+                logger.info("No robot port auto-detected, please select manually")
 
     def connectSerial(self):
         """Connect to or disconnect from serial port"""
@@ -1420,8 +1440,17 @@ class BifrostGUI(Ui_MainWindow):
         # Request initial position after thread is ready
         QtCore.QTimer.singleShot(50, self.requestInitialPosition)
 
-        logger.info(f"Connected to {serialPort} at {baudrate} baud")
-        logger.info("Serial thread started (Firmware: RepRapFirmware)")
+        # Display appropriate connection message
+        if config.USE_SIMULATION_MODE:
+            logger.info("=== CONNECTED TO SIMULATED ROBOT ===")
+            logger.info("Simulation mode active - no hardware required")
+            # Update console to show simulation mode
+            self.ConsoleOutput.appendPlainText("=== SIMULATION MODE ACTIVE ===")
+            self.ConsoleOutput.appendPlainText("No hardware connected - using simulated robot")
+        else:
+            logger.info(f"Connected to {serialPort} at {baudrate} baud")
+            logger.info("Serial thread started (Firmware: RepRapFirmware)")
+
         logger.info("Requesting position update to initialize differential tracking")
 
     def _onConnectionError(self, error_msg):
@@ -1837,9 +1866,9 @@ class BifrostGUI(Ui_MainWindow):
 # SerialThreadClass uses the global s0 SerialManager instance
 # The actual implementation is in serial_thread.py (SerialThread class)
 
-class SerialThreadClass(SerialThread):
+class SerialThreadClass(SimulatedSerialThread if config.USE_SIMULATION_MODE else SerialThread):
     """
-    Backward-compatible wrapper around SerialThread.
+    Backward-compatible wrapper around SerialThread or SimulatedSerialThread.
     Uses the global s0 SerialManager instance.
     """
 

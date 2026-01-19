@@ -119,3 +119,6 @@ FRAMES_CONFIG_FILE = "coordinate_frames.json"  # File for persisting frame defin
 DEFAULT_TOOL_OFFSET_Z = 67.15  # Default TCP offset (from DH parameter L4)
 FRAME_AXIS_LENGTH = 50  # mm - length of frame axes in 3D visualisation
 FRAME_AXIS_LENGTH_TOOL = 35  # mm - shorter axes for tool frames
+
+# ========== Simulation Mode ==========
+USE_SIMULATION_MODE = False  # Set to True to use simulated robot (no hardware required)

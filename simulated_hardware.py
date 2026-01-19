@@ -423,24 +423,13 @@ class SimulatedSerialThread(QThread):
         """Gracefully stop the thread."""
         self.running = False
 
-        # Stop timers if running
-        if self.position_timer:
-            self.position_timer.stop()
-        if self.endstop_timer:
-            self.endstop_timer.stop()
-
     def run(self) -> None:
-        """Main thread loop using QTimer for periodic updates."""
+        """Main thread loop with command processing and periodic polling."""
         logger.info("SimulatedSerialThread started")
 
-        # Create timers for periodic status requests
-        self.position_timer = QTimer()
-        self.position_timer.timeout.connect(self._send_position_request)
-        self.position_timer.start(int(config.SERIAL_STATUS_REQUEST_INTERVAL * 1000))
-
-        self.endstop_timer = QTimer()
-        self.endstop_timer.timeout.connect(self._send_endstop_request)
-        self.endstop_timer.start(int(config.SERIAL_ENDSTOP_REQUEST_INTERVAL * 1000))
+        # Track time for periodic requests (no QTimer - use manual timing)
+        last_position_request = time.time()
+        last_endstop_request = time.time()
 
         # Main loop: process commands and read responses
         while self.running:
@@ -449,6 +438,8 @@ class SimulatedSerialThread(QThread):
                 continue
 
             try:
+                current_time = time.time()
+
                 # Process command queue
                 command = self.serial_manager.get_next_command()
                 if command:
@@ -462,9 +453,19 @@ class SimulatedSerialThread(QThread):
                     for block_cmd in self.BLOCKING_COMMANDS:
                         if command_str.startswith(block_cmd):
                             self.status_polling_paused = True
-                            self.blocking_command_start_time = time.time()
+                            self.blocking_command_start_time = current_time
                             logger.info(f"Pausing status polling for: {command_str}")
                             break
+
+                # Send periodic position requests (if not paused)
+                if not self.status_polling_paused:
+                    if current_time - last_position_request >= config.SERIAL_STATUS_REQUEST_INTERVAL:
+                        self.serial_manager.write(b"M114\n", priority=True)
+                        last_position_request = current_time
+
+                    if current_time - last_endstop_request >= config.SERIAL_ENDSTOP_REQUEST_INTERVAL:
+                        self.serial_manager.write(b"M119\n", priority=True)
+                        last_endstop_request = current_time
 
                 # Read available responses
                 bytes_available = self.serial_manager.inWaiting()
@@ -480,7 +481,7 @@ class SimulatedSerialThread(QThread):
 
                 # Check for timeout on paused polling
                 if self.status_polling_paused:
-                    elapsed = time.time() - self.blocking_command_start_time
+                    elapsed = current_time - self.blocking_command_start_time
                     if elapsed >= config.BLOCKING_COMMAND_MAX_PAUSE:
                         self.status_polling_paused = False
                         logger.warning(f"Forcing resume after {elapsed:.1f}s timeout")
@@ -495,15 +496,6 @@ class SimulatedSerialThread(QThread):
 
         logger.info("SimulatedSerialThread stopped")
 
-    def _send_position_request(self) -> None:
-        """Send M114 position request (called by QTimer)."""
-        if not self.status_polling_paused and self.serial_manager.isOpen():
-            self.serial_manager.write(b"M114\n", priority=True)
-
-    def _send_endstop_request(self) -> None:
-        """Send M119 endstop request (called by QTimer)."""
-        if not self.status_polling_paused and self.serial_manager.isOpen():
-            self.serial_manager.write(b"M119\n", priority=True)
 
     def _check_blocking_command_complete(self, data: str) -> None:
         """Check if blocking command completed and resume polling."""

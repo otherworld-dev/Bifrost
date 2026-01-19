@@ -1443,12 +1443,18 @@ class BifrostGUI(Ui_MainWindow):
 
         # Update command sender to use new serial manager
         self.command_sender.serial_manager = s0
-        logger.debug("Command sender updated with new serial manager")
+        logger.info(f"Command sender updated with new serial manager: {type(s0).__name__}")
+        logger.info(f"Command sender serial manager isOpen: {s0.isOpen()}")
 
         # Update movement controller command sender callback
         if hasattr(self, 'movement_controller'):
             self.movement_controller.command_sender = self.command_sender.send_if_connected
             logger.debug("Movement controller command sender updated")
+
+        # Verify fk_controller has updated command_sender
+        if hasattr(self, 'fk_controller') and self.fk_controller.command_sender:
+            logger.info(f"FK controller command_sender.serial_manager: {type(self.fk_controller.command_sender.serial_manager).__name__}")
+            logger.info(f"FK controller serial manager isOpen: {self.fk_controller.command_sender.serial_manager.isOpen()}")
 
         # Refresh serial ports
         self.getSerialPorts()

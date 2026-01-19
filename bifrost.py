@@ -285,10 +285,12 @@ class BifrostGUI(Ui_MainWindow):
 
         self.SerialPortRefreshButton.pressed.connect(self.getSerialPorts)
         self.ConnectButton.pressed.connect(self.connectSerial)
-        self.SimulationModeCheckBox.toggled.connect(self.toggleSimulationMode)
 
-        # Set initial simulation mode state from config
+        # Disable simulation mode toggle - use config.py instead
+        # self.SimulationModeCheckBox.toggled.connect(self.toggleSimulationMode)
         self.SimulationModeCheckBox.setChecked(config.USE_SIMULATION_MODE)
+        self.SimulationModeCheckBox.setEnabled(False)
+        self.SimulationModeCheckBox.setToolTip("Set USE_SIMULATION_MODE in config.py and restart")
 
         # Connect console input signals after replacing with HistoryLineEdit
         self.ConsoleButtonSend.pressed.connect(self.sendSerialCommand)
@@ -1388,79 +1390,6 @@ class BifrostGUI(Ui_MainWindow):
                     logger.warning(f"Detected port {robot_port} not found in combo box")
             else:
                 logger.info("No robot port auto-detected, please select manually")
-
-    def toggleSimulationMode(self, enabled):
-        """Toggle between simulation and real hardware mode"""
-        # If connected, must disconnect first
-        if self.connection_manager.is_connected:
-            QtWidgets.QMessageBox.warning(
-                None, "Mode Switch",
-                "Please disconnect before switching modes."
-            )
-            # Revert checkbox state
-            self.SimulationModeCheckBox.blockSignals(True)
-            self.SimulationModeCheckBox.setChecked(not enabled)
-            self.SimulationModeCheckBox.blockSignals(False)
-            return
-
-        # Create new serial manager (simulated or real)
-        global s0
-        if enabled:
-            logger.info("Switching to SIMULATION mode")
-            s0 = SimulatedSerialManager()
-            self.SerialPortComboBox.setEnabled(False)
-            self.SerialPortRefreshButton.setEnabled(False)
-
-            # Create wrapper class for SimulatedSerialThread
-            class DynamicSimulatedThreadClass(SimulatedSerialThread):
-                def __init__(self, gui_instance=None, parent=None):
-                    super().__init__(serial_manager=s0, parent=parent)
-                    self.gui_instance = gui_instance
-
-            thread_class = DynamicSimulatedThreadClass
-        else:
-            logger.info("Switching to REAL HARDWARE mode")
-            s0 = SerialManager()
-            self.SerialPortComboBox.setEnabled(True)
-            self.SerialPortRefreshButton.setEnabled(True)
-
-            # Create wrapper class for SerialThread
-            class DynamicRealThreadClass(SerialThread):
-                def __init__(self, gui_instance=None, parent=None):
-                    super().__init__(serial_manager=s0, parent=parent)
-                    self.gui_instance = gui_instance
-
-            thread_class = DynamicRealThreadClass
-
-        # Update connection manager with new serial manager and thread class
-        self.connection_manager = ConnectionManager(s0)
-        self.connection_manager.set_serial_thread_class(thread_class)
-
-        # Reconnect connection manager signals
-        self.connection_manager.connected.connect(self._onConnectionSuccess)
-        self.connection_manager.error.connect(self._onConnectionError)
-        self.connection_manager.disconnected.connect(self.serialDisconnected)
-
-        # Update command sender to use new serial manager
-        self.command_sender.serial_manager = s0
-        logger.info(f"Command sender updated with new serial manager: {type(s0).__name__}")
-        logger.info(f"Command sender serial manager isOpen: {s0.isOpen()}")
-
-        # Update movement controller command sender callback
-        if hasattr(self, 'movement_controller'):
-            self.movement_controller.command_sender = self.command_sender.send_if_connected
-            logger.debug("Movement controller command sender updated")
-
-        # Update FK controller command sender
-        if hasattr(self, 'fk_controller'):
-            self.fk_controller.command_sender = self.command_sender
-            logger.info(f"FK controller command sender updated: {type(s0).__name__}")
-            logger.info(f"FK controller serial manager isOpen: {s0.isOpen()}")
-
-        # Refresh serial ports
-        self.getSerialPorts()
-
-        logger.info(f"Mode switched: simulation_mode={enabled}")
 
     def connectSerial(self):
         """Connect to or disconnect from serial port"""

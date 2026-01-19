@@ -45,9 +45,8 @@ import json
 import logging
 import numpy as np
 
-# Conditional imports for simulation mode
-if config.USE_SIMULATION_MODE:
-    from simulated_hardware import SimulatedSerialManager, SimulatedSerialThread
+# Import simulation hardware (always available for runtime toggle)
+from simulated_hardware import SimulatedSerialManager, SimulatedSerialThread
 
 # Configure logging for debugging using config
 # Only log to file, not to console
@@ -516,7 +515,11 @@ class BifrostGUI(Ui_MainWindow):
         if joint_name in self.joint_spinboxes:
             spinbox = self.joint_spinboxes[joint_name]
             new_value = spinbox.value() + delta
-            spinbox.setValue(new_value)
+            # Cast to int for QSpinBox (gripper), keep float for QDoubleSpinBox
+            if isinstance(spinbox, QtWidgets.QSpinBox):
+                spinbox.setValue(int(new_value))
+            else:
+                spinbox.setValue(new_value)
 
             # JOG MODE: If jog mode is enabled, execute movement immediately
             if self.jog_mode_enabled:

@@ -746,7 +746,6 @@ class Robot3DCanvas(gl.GLViewWidget):
     def preview_dh_parameters(self, dh_params):
         """
         Preview robot with custom DH parameters (for live editing).
-        NOTE: This method must recreate meshes since DH parameters change geometry.
 
         Args:
             dh_params: List of dicts with DH parameters for each link
@@ -759,36 +758,25 @@ class Robot3DCanvas(gl.GLViewWidget):
         with self._fk_cache_lock:
             self._fk_cache.clear()
 
-        # DH preview needs full redraw since geometry changes
-        # Reset persistent mesh state to force recreation with new transforms
+        # Remove old persistent meshes and force re-creation with new DH transforms
+        self._remove_meshes_from_scene()
         self._persistent_meshes_initialized = False
         self._base_frame_initialized = False
 
-        # Use persistent grid (will recreate due to invalidation)
-        if self.show_grid:
-            self._ensure_grid_initialized()
-
-        # Show robot at home position (all joints at 0) with new DH parameters
+        # Re-initialize and update with home position using new DH parameters
         home_angles = (0, 0, 0, 0, 0, 0)
-        home_positions = fk.compute_all_joint_positions(*home_angles)
-        self.current_joint_positions = home_positions
+        if self.use_stl and self.stl_loaded:
+            self._initialize_persistent_meshes()
+            self._ensure_meshes_in_scene()
+            self._update_robot_transforms(home_angles)
+            self.draw_tcp_frame(*home_angles, length=50)
+        else:
+            home_positions = fk.compute_all_joint_positions(*home_angles)
+            self.current_joint_positions = home_positions
+            self._draw_robot_primitives(home_positions, active=False)
 
-        # Draw robot in preview colours (inactive/grey)
-        self.draw_robot_arm(home_positions, active=False, joint_angles=home_angles)
-
-        # Draw TCP frame at home position
-        self.draw_tcp_frame(0, 0, 0, 0, 0, 0, length=50)
-
-        # Draw base frame if enabled
         if self.show_base_frame:
             self.draw_base_frame()
-
-        # Force OpenGL view to repaint - try multiple methods
-        self.update()
-        self.repaint()
-        # Schedule another update in case the first one doesn't trigger
-        from PyQt5 import QtCore
-        QtCore.QTimer.singleShot(10, self.update)
 
         logger.debug("DH parameters preview updated")
 

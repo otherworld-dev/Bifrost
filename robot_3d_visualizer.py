@@ -792,6 +792,25 @@ class Robot3DCanvas(gl.GLViewWidget):
 
         logger.debug("DH parameters preview updated")
 
+    def update_robot(self, joint_angles):
+        """
+        Update robot visualization directly from joint angles (no position history needed).
+
+        Args:
+            joint_angles: List/tuple of 6 joint angles [q1, q2, q3, q4, q5, q6] in degrees
+        """
+        angles = tuple(joint_angles[:6])
+
+        if self.show_robot and self.use_stl and self.stl_loaded:
+            self._initialize_persistent_meshes()
+            self._ensure_meshes_in_scene()
+            self._update_robot_transforms(angles)
+            self.draw_tcp_frame(*angles, length=50)
+        elif self.show_robot:
+            current_positions = self._compute_fk_cached(*angles)
+            self.current_joint_positions = current_positions
+            self._draw_robot_primitives(current_positions, active=True)
+
     def clear_all_items(self):
         """Remove all graphics items from the view"""
         # Clear all items (including grid)
@@ -1406,11 +1425,6 @@ class Robot3DCanvas(gl.GLViewWidget):
         # This is the raw DH joint 6 frame - no calibration applied
         tcp_pos = transforms[6][0:3, 3]
         tcp_rot = transforms[6][0:3, 0:3]
-
-        # Apply correction so Z-axis aligns with joint 6 rotation axis (DH convention)
-        # DH frame has Y as the rotation axis, so rotate +90° around X to make Z the rotation axis
-        R_correction = euler_to_rotation_matrix(90, 0, 0)
-        tcp_rot = tcp_rot @ R_correction
 
         # Create frame axes (X, Y, Z in TCP frame)
         x_axis_tcp = tcp_rot @ np.array([length, 0, 0])

@@ -286,11 +286,10 @@ class BifrostGUI(Ui_MainWindow):
         self.SerialPortRefreshButton.pressed.connect(self.getSerialPorts)
         self.ConnectButton.pressed.connect(self.connectSerial)
 
-        # Disable simulation mode toggle - use config.py instead
-        # self.SimulationModeCheckBox.toggled.connect(self.toggleSimulationMode)
+        # Simulation mode checkbox - enables direct visualization without serial connection
         self.SimulationModeCheckBox.setChecked(config.USE_SIMULATION_MODE)
-        self.SimulationModeCheckBox.setEnabled(False)
-        self.SimulationModeCheckBox.setToolTip("Set USE_SIMULATION_MODE in config.py and restart")
+        self.SimulationModeCheckBox.toggled.connect(self._onSimulationModeToggled)
+        self.SimulationModeCheckBox.setToolTip("Move robot in visualization without hardware connection")
 
         # Connect console input signals after replacing with HistoryLineEdit
         self.ConsoleButtonSend.pressed.connect(self.sendSerialCommand)
@@ -537,18 +536,27 @@ class BifrostGUI(Ui_MainWindow):
     def FKSliderUpdate(self, joint_name, value):
         """Generic slider update handler - updates spinbox from slider via FK controller"""
         self.fk_controller.slider_changed(joint_name, value)
+        if self.SimulationModeCheckBox.isChecked():
+            self._updateSimulationVisualization()
 
     def FKSpinBoxUpdate(self, joint_name, value):
         """Generic spinbox update handler - updates slider from spinbox via FK controller"""
         self.fk_controller.spinbox_changed(joint_name, value)
+        if self.SimulationModeCheckBox.isChecked():
+            self._updateSimulationVisualization()
 
     def FKMoveJoint(self, joint_name):
         """
         Generic joint movement handler - delegates to FK controller.
         Handles simple joints, coupled motors, and differential kinematics.
+        In simulation mode, only updates visualization (no serial command).
         """
         if joint_name not in self.joint_spinboxes:
             logger.warning(f"Unknown joint: {joint_name}")
+            return
+
+        if self.SimulationModeCheckBox.isChecked():
+            self._updateSimulationVisualization()
             return
 
         joint_value = self.joint_spinboxes[joint_name].value()
@@ -707,12 +715,16 @@ class BifrostGUI(Ui_MainWindow):
             logger.warning(f"Could not sync commands to actual: {e}")
 
     def on_dh_parameters_changed(self):
-        """Handle DH parameters changed signal - reload FK parameters"""
+        """Handle DH parameters changed signal - reload FK parameters and update visualization"""
         try:
             import forward_kinematics as fk
             fk.reload_dh_parameters()
             # Exit preview mode since parameters are now saved
             self.visualization_controller.dh_preview_mode = False
+            # Force visualization to redraw with new parameters
+            if hasattr(self, 'position_canvas') and self.position_canvas:
+                self.position_canvas._is_dirty = True
+                self._updateSimulationVisualization()
             logger.info("DH parameters saved and reloaded in FK module")
         except Exception as e:
             logger.error(f"Error reloading DH parameters: {e}")
@@ -720,12 +732,13 @@ class BifrostGUI(Ui_MainWindow):
     def on_dh_preview_changed(self):
         """Handle DH preview signal - update visualisation with current DH panel values"""
         try:
-            if hasattr(self, 'dh_panel') and hasattr(self, 'position_canvas'):
+            dh_widget = getattr(self, '_dh_widget', None)
+            if dh_widget and hasattr(self, 'position_canvas'):
                 # Enable DH preview mode to prevent timer-based updates from overwriting
                 self.visualization_controller.enter_dh_preview_mode()
 
                 # Get current parameters from DH panel
-                params = self.dh_panel.get_parameters()
+                params = dh_widget.get_parameters()
                 # Update visualisation with preview
                 self.position_canvas.preview_dh_parameters(params)
                 logger.debug("DH preview updated")
@@ -733,7 +746,12 @@ class BifrostGUI(Ui_MainWindow):
             logger.error(f"Error updating DH preview: {e}")
 
     def FKMoveAll(self):
-        """Move all joints simultaneously - delegates to FK controller"""
+        """Move all joints simultaneously - delegates to FK controller.
+        In simulation mode, only updates visualization (no serial command)."""
+        if self.SimulationModeCheckBox.isChecked():
+            self._updateSimulationVisualization()
+            return
+
         # Get joint values from spinboxes
         joint_values = JointValues(
             art1=self.SpinBoxArt1.value(),
@@ -1159,9 +1177,18 @@ class BifrostGUI(Ui_MainWindow):
 
     def _connectDHPanelSignals(self):
         """Connect DH panel signals - deferred to ensure widgets are ready"""
-        if hasattr(self, 'dh_panel') and self.dh_panel:
-            self.dh_panel.parameters_changed.connect(self.on_dh_parameters_changed)
-            self.dh_panel.preview_changed.connect(self.on_dh_preview_changed)
+        # DH widget is inside calibration_panel, not a top-level attribute
+        dh_widget = None
+        if hasattr(self, 'calibration_panel') and hasattr(self.calibration_panel, 'dh_parameters'):
+            dh_widget = self.calibration_panel.dh_parameters
+        elif hasattr(self, 'dh_panel') and self.dh_panel:
+            dh_widget = self.dh_panel
+
+        if dh_widget:
+            self._dh_widget = dh_widget
+            dh_widget.parameters_changed.connect(self.on_dh_parameters_changed)
+            if hasattr(dh_widget, 'preview_changed'):
+                dh_widget.preview_changed.connect(self.on_dh_preview_changed)
             logger.info("DH panel signals connected for live preview")
         else:
             logger.warning("DH panel not found, live preview disabled")
@@ -1390,6 +1417,34 @@ class BifrostGUI(Ui_MainWindow):
                     logger.warning(f"Detected port {robot_port} not found in combo box")
             else:
                 logger.info("No robot port auto-detected, please select manually")
+
+    def _onSimulationModeToggled(self, enabled):
+        """Handle simulation mode checkbox toggle"""
+        if enabled:
+            logger.info("Simulation mode enabled - direct visualization control")
+            self.SerialPortComboBox.setEnabled(False)
+            self.SerialPortRefreshButton.setEnabled(False)
+            # Show current spinbox positions in visualization immediately
+            self._updateSimulationVisualization()
+        else:
+            logger.info("Simulation mode disabled - serial connection required")
+            self.SerialPortComboBox.setEnabled(True)
+            self.SerialPortRefreshButton.setEnabled(True)
+        self.getSerialPorts()
+
+    def _updateSimulationVisualization(self):
+        """Update 3D visualization directly from current spinbox values (no connection needed)"""
+        if not hasattr(self, 'position_canvas') or not self.position_canvas:
+            return
+        joint_angles = [
+            self.SpinBoxArt1.value(),
+            self.SpinBoxArt2.value(),
+            self.SpinBoxArt3.value(),
+            self.SpinBoxArt4.value(),
+            self.SpinBoxArt5.value(),
+            self.SpinBoxArt6.value()
+        ]
+        self.position_canvas.update_robot(joint_angles)
 
     def connectSerial(self):
         """Connect to or disconnect from serial port"""

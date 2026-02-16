@@ -312,7 +312,8 @@ class GripperCalibrationWidget(QtWidgets.QWidget):
 class DHParametersWidget(QtWidgets.QWidget):
     """Widget for editing DH parameters table"""
 
-    parameters_changed = QtCore.pyqtSignal()
+    parameters_changed = QtCore.pyqtSignal()  # Emitted when parameters are saved
+    preview_changed = QtCore.pyqtSignal()  # Emitted when any value changes (for live preview)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -402,6 +403,12 @@ class DHParametersWidget(QtWidgets.QWidget):
 
         main_layout.addWidget(self.table)
 
+        # Connect all spinboxes and combos to emit preview_changed
+        for spinbox in self.spinboxes.values():
+            spinbox.valueChanged.connect(self._on_value_changed)
+        for combo in self.direction_combos.values():
+            combo.currentIndexChanged.connect(self._on_value_changed)
+
         # Buttons
         button_layout = QtWidgets.QHBoxLayout()
 
@@ -446,6 +453,28 @@ class DHParametersWidget(QtWidgets.QWidget):
             logger.error(f"Error loading DH parameters: {e}")
         finally:
             self._loading = False
+
+    def _on_value_changed(self):
+        """Handle spinbox/combo value change - emit preview signal"""
+        if not self._loading:
+            self.preview_changed.emit()
+
+    def get_parameters(self):
+        """Get current DH parameters from the table as a list of dicts"""
+        params = []
+        descriptions = ["Base rotation", "Shoulder", "Elbow", "Wrist roll", "Wrist pitch", "Wrist yaw / TCP"]
+        for row in range(6):
+            direction = 1 if self.direction_combos[row].currentIndex() == 0 else -1
+            params.append({
+                "link": row + 1,
+                "theta_offset": self.spinboxes[(row, 'theta_offset')].value(),
+                "direction": direction,
+                "d": self.spinboxes[(row, 'd')].value(),
+                "a": self.spinboxes[(row, 'a')].value(),
+                "alpha": self.spinboxes[(row, 'alpha')].value(),
+                "description": descriptions[row],
+            })
+        return params
 
     def save_parameters(self):
         """Save DH parameters to file"""

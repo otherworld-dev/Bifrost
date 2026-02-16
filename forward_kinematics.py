@@ -108,6 +108,21 @@ def get_direction(link_index):
     return 1
 
 
+def set_direction(link_index, direction):
+    """Set direction multiplier for a link (0-indexed) in-memory without file I/O.
+
+    Args:
+        link_index: 0-indexed link number
+        direction: 1 or -1
+    """
+    global _dh_params
+    if _dh_params is None:
+        load_dh_parameters()
+    if _dh_params and link_index < len(_dh_params):
+        _dh_params[link_index]['direction'] = direction
+        logger.info(f"Set link {link_index} direction to {direction} (in-memory)")
+
+
 def get_link_lengths() -> dict:
     """
     Get robot link lengths from DH parameters.

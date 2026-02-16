@@ -10,7 +10,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from pathlib import Path
 import json
 import logging
-from forward_kinematics import get_dh_params, reload_dh_parameters
+from forward_kinematics import get_dh_params, reload_dh_parameters, set_direction as fk_set_direction
 import config
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ class JointCalibrationWidget(QtWidgets.QWidget):
     """Widget for verifying direction of a single joint"""
 
     test_movement = QtCore.pyqtSignal(str, float)  # joint_name, delta_angle
+    direction_changed = QtCore.pyqtSignal(str, int)  # joint_name, direction (+1 or -1)
 
     def __init__(self, joint_name, joint_description, parent=None):
         super().__init__(parent)
@@ -109,22 +110,19 @@ class JointCalibrationWidget(QtWidgets.QWidget):
 
         main_layout.addWidget(frame)
 
-        # Connect signals
-        self.direction_button_group.buttonToggled.connect(self.on_direction_changed)
+        # Connect signals - use clicked (only fires on user interaction, not setChecked)
+        self.forward_radio.clicked.connect(lambda: self._on_user_direction_click(1))
+        self.reverse_radio.clicked.connect(lambda: self._on_user_direction_click(-1))
 
         self.test_minus_10.clicked.connect(lambda: self.test_movement.emit(self.joint_name, -10))
         self.test_minus_1.clicked.connect(lambda: self.test_movement.emit(self.joint_name, -1))
         self.test_plus_1.clicked.connect(lambda: self.test_movement.emit(self.joint_name, 1))
         self.test_plus_10.clicked.connect(lambda: self.test_movement.emit(self.joint_name, 10))
 
-    def on_direction_changed(self, button, checked):
-        """Called when direction radio button changes"""
-        if not checked:
-            return
-        direction = self.direction_button_group.checkedId()
-        if direction not in (1, -1):
-            direction = 1
+    def _on_user_direction_click(self, direction):
+        """Called when user clicks a direction radio button"""
         self.current_direction = direction
+        self.direction_changed.emit(self.joint_name, direction)
 
     def set_direction(self, direction):
         """Set direction programmatically"""
@@ -234,14 +232,6 @@ class GripperCalibrationWidget(QtWidgets.QWidget):
         self.open_pwm_spinbox.valueChanged.connect(self.update_range_label)
         self.closed_pwm_spinbox.valueChanged.connect(self.update_range_label)
 
-        # Save button
-        save_layout = QtWidgets.QHBoxLayout()
-        save_layout.addStretch()
-        self.save_btn = QtWidgets.QPushButton("💾 Save Gripper Settings")
-        self.save_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px;")
-        self.save_btn.clicked.connect(self.save_calibration)
-        save_layout.addWidget(self.save_btn)
-        main_layout.addLayout(save_layout)
 
     def update_range_label(self):
         """Update the effective range display"""
@@ -269,38 +259,6 @@ class GripperCalibrationWidget(QtWidgets.QWidget):
 
         except Exception as e:
             logger.error(f"Error loading gripper calibration: {e}")
-
-    def save_calibration(self):
-        """Save gripper calibration to file and apply to config"""
-        try:
-            data = {
-                'pwm_open': self.open_pwm_spinbox.value(),
-                'pwm_closed': self.closed_pwm_spinbox.value()
-            }
-
-            with open(GRIPPER_CALIBRATION_FILE, 'w') as f:
-                json.dump(data, f, indent=4)
-
-            self.apply_to_config()
-
-            logger.info(f"Saved gripper calibration: {data}")
-
-            QtWidgets.QMessageBox.information(
-                self,
-                "Gripper Settings Saved",
-                f"Gripper PWM range saved!\n\n"
-                f"Open (100%): {data['pwm_open']} PWM\n"
-                f"Closed (0%): {data['pwm_closed']} PWM\n\n"
-                f"Changes are now active."
-            )
-
-        except Exception as e:
-            logger.error(f"Error saving gripper calibration: {e}")
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Save Error",
-                f"Failed to save gripper settings:\n{e}"
-            )
 
     def apply_to_config(self):
         """Apply current values to the config module at runtime"""
@@ -421,12 +379,6 @@ class DHParametersWidget(QtWidgets.QWidget):
         button_layout.addWidget(self.reset_button)
 
         button_layout.addStretch()
-
-        self.save_button = QtWidgets.QPushButton("💾 Save DH Parameters")
-        self.save_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px;")
-        self.save_button.clicked.connect(self.save_parameters)
-        button_layout.addWidget(self.save_button)
-
         main_layout.addLayout(button_layout)
 
     def load_parameters(self):
@@ -596,6 +548,7 @@ class CalibrationPanel(QtWidgets.QWidget):
         for joint_name, description in joint_info:
             widget = JointCalibrationWidget(joint_name, description)
             widget.test_movement.connect(self.on_test_movement)
+            widget.direction_changed.connect(self.on_joint_direction_changed)
             self.joint_widgets[joint_name] = widget
             scroll_layout.addWidget(widget)
 
@@ -608,6 +561,8 @@ class CalibrationPanel(QtWidgets.QWidget):
         # Add gripper calibration widget
         self.gripper_calibration = GripperCalibrationWidget()
         self.gripper_calibration.test_gripper.connect(self.on_test_gripper)
+        self.gripper_calibration.open_pwm_spinbox.valueChanged.connect(self._auto_save_gripper)
+        self.gripper_calibration.closed_pwm_spinbox.valueChanged.connect(self._auto_save_gripper)
         scroll_layout.addWidget(self.gripper_calibration)
 
         # Add separator before DH parameters
@@ -623,29 +578,6 @@ class CalibrationPanel(QtWidgets.QWidget):
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
-
-        # Action buttons
-        button_layout = QtWidgets.QHBoxLayout()
-
-        self.reset_button = QtWidgets.QPushButton("Reset All")
-        self.reset_button.setToolTip("Reset all directions to Forward")
-        self.reset_button.clicked.connect(self.reset_calibration)
-        button_layout.addWidget(self.reset_button)
-
-        self.load_button = QtWidgets.QPushButton("Load from DH Params")
-        self.load_button.setToolTip("Load direction settings from dh_parameters.json")
-        self.load_button.clicked.connect(self.load_current_calibration)
-        button_layout.addWidget(self.load_button)
-
-        button_layout.addStretch()
-
-        self.save_button = QtWidgets.QPushButton("💾 Save Calibration")
-        self.save_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px; padding: 10px;")
-        self.save_button.setToolTip("Save calibration to dh_parameters.json and apply immediately")
-        self.save_button.clicked.connect(self.save_calibration)
-        button_layout.addWidget(self.save_button)
-
-        main_layout.addLayout(button_layout)
 
         # Status bar
         self.status_label = QtWidgets.QLabel("Status: Ready to calibrate")
@@ -677,6 +609,45 @@ class CalibrationPanel(QtWidgets.QWidget):
 
             self.status_label.setText(f"Status: Moved {joint_name} {delta_angle:+.1f}° → {new_value:.1f}°")
             self.status_label.setStyleSheet("background-color: #ccffcc; padding: 5px;")
+
+    def on_joint_direction_changed(self, joint_name, direction):
+        """Save direction to DH parameters file and reload immediately."""
+        joint_to_link = {
+            'Art1': 0, 'Art2': 1, 'Art3': 2,
+            'Art4': 3, 'Art5': 4, 'Art6': 5
+        }
+        link_idx = joint_to_link.get(joint_name)
+        if link_idx is None:
+            return
+
+        try:
+            with open(DH_PARAMS_FILE, 'r') as f:
+                dh_data = json.load(f)
+
+            dh_data['links'][link_idx]['direction'] = direction
+
+            with open(DH_PARAMS_FILE, 'w') as f:
+                json.dump(dh_data, f, indent=4)
+
+            reload_dh_parameters()
+
+            # Sync the DH parameters table combo so it reflects the change
+            if hasattr(self, 'dh_parameters') and self.dh_parameters:
+                combo = self.dh_parameters.direction_combos.get(link_idx)
+                if combo:
+                    combo.blockSignals(True)
+                    combo.setCurrentIndex(0 if direction == 1 else 1)
+                    combo.blockSignals(False)
+
+            dir_label = 'Forward' if direction == 1 else 'Reverse'
+            logger.info(f"{joint_name} direction set to {dir_label}")
+            self.status_label.setText(f"Status: {joint_name} direction = {dir_label}")
+            self.status_label.setStyleSheet("background-color: #ccffcc; padding: 5px;")
+
+        except Exception as e:
+            logger.error(f"Error updating {joint_name} direction: {e}")
+            self.status_label.setText(f"Status: Error - {e}")
+            self.status_label.setStyleSheet("background-color: #ffcccc; padding: 5px;")
 
     def on_test_gripper(self, pwm_value):
         """Handle gripper test button clicks - send direct PWM command"""
@@ -737,76 +708,17 @@ class CalibrationPanel(QtWidgets.QWidget):
             self.status_label.setText(f"Status: Error loading - {e}")
             self.status_label.setStyleSheet("background-color: #ffcccc; padding: 5px;")
 
-    def save_calibration(self):
-        """Save direction settings to DH parameters file"""
+    def _auto_save_gripper(self):
+        """Auto-save gripper calibration when spinbox values change."""
         try:
-            # Load existing DH parameters to preserve geometry fields
-            with open(DH_PARAMS_FILE, 'r') as f:
-                dh_data = json.load(f)
-
-            # Map joint name to link index
-            joint_to_link = {
-                'Art1': 0,
-                'Art2': 1,
-                'Art3': 2,
-                'Art4': 3,
-                'Art5': 4,
-                'Art6': 5
+            gripper_data = {
+                'pwm_open': self.gripper_calibration.open_pwm_spinbox.value(),
+                'pwm_closed': self.gripper_calibration.closed_pwm_spinbox.value()
             }
-
-            # Update only direction field
-            for joint_name, widget in self.joint_widgets.items():
-                link_idx = joint_to_link[joint_name]
-                dh_data['links'][link_idx]['direction'] = widget.get_direction()
-
-            # Update metadata
-            dh_data['date_modified'] = QtCore.QDateTime.currentDateTime().toString("yyyy-MM-dd")
-
-            # Save to DH parameters file
-            with open(DH_PARAMS_FILE, 'w') as f:
-                json.dump(dh_data, f, indent=4)
-
-            # Reload DH parameters in FK module
-            reload_dh_parameters()
-
-            self.status_label.setText("Status: Direction settings saved!")
-            self.status_label.setStyleSheet("background-color: #4CAF50; color: white; padding: 5px; font-weight: bold;")
-            logger.info("Direction settings saved to dh_parameters.json")
-
-            QtWidgets.QMessageBox.information(
-                self,
-                "Saved",
-                "Direction settings saved to DH parameters.\n\n"
-                "Changes are now active."
-            )
-
+            with open(GRIPPER_CALIBRATION_FILE, 'w') as f:
+                json.dump(gripper_data, f, indent=4)
+            self.gripper_calibration.apply_to_config()
+            logger.debug(f"Auto-saved gripper calibration: {gripper_data}")
         except Exception as e:
-            logger.error(f"Error saving calibration: {e}")
-            logger.exception("Calibration save error:")
-            self.status_label.setText(f"Status: Error saving - {e}")
-            self.status_label.setStyleSheet("background-color: #ffcccc; padding: 5px;")
+            logger.error(f"Error auto-saving gripper calibration: {e}")
 
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Save Error",
-                f"Failed to save:\n{e}"
-            )
-
-    def reset_calibration(self):
-        """Reset all directions to Forward"""
-        reply = QtWidgets.QMessageBox.question(
-            self,
-            "Reset Directions",
-            "Reset all joints to Forward direction?\n\n"
-            "This will not save automatically.",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-            QtWidgets.QMessageBox.No
-        )
-
-        if reply == QtWidgets.QMessageBox.Yes:
-            for widget in self.joint_widgets.values():
-                widget.set_direction(1)
-
-            self.status_label.setText("Status: All directions reset to Forward")
-            self.status_label.setStyleSheet("background-color: #ffeecc; padding: 5px;")
-            logger.info("Directions reset to defaults")

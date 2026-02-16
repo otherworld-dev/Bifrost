@@ -11,6 +11,7 @@ This module provides:
 
 import re
 import time
+import re
 import logging
 import threading
 from typing import Optional, Dict
@@ -52,6 +53,11 @@ class SimulatedSerialManager:
             'U': 0.0,  # Art4
             'V': 0.0,  # Motor V (differential)
             'W': 0.0,  # Motor W (differential)
+        }
+
+        # Motor direction state (M569 S values, matching config.g defaults)
+        self.motor_directions = {
+            0: 0, 1: 0, 2: 0, 3: 0, 4: 1, 5: 1, 6: 1
         }
 
         # Gripper state (PWM 0-255)
@@ -170,6 +176,8 @@ class SimulatedSerialManager:
                 return self._handle_reset()
             elif cmd_num == 115:  # M115 (firmware version)
                 return "FIRMWARE_NAME: Simulated RRF FIRMWARE_VERSION: 3.5-sim"
+            elif cmd_num == 569:  # M569 (motor direction)
+                return self._handle_m569(command_upper)
 
         # Default response
         return "ok"
@@ -255,6 +263,18 @@ class SimulatedSerialManager:
         # Reset endstops to normal state
         for axis in self.endstops:
             self.endstops[axis] = 'not stopped'
+        return "ok"
+
+    def _handle_m569(self, command: str) -> str:
+        """Handle M569 motor direction command."""
+        p_match = re.search(r'P(\d+)', command)
+        s_match = re.search(r'S(\d+)', command)
+        if p_match and s_match:
+            drive = int(p_match.group(1))
+            direction = int(s_match.group(1))
+            if drive in self.motor_directions:
+                self.motor_directions[drive] = direction
+                logger.debug(f"Simulated M569: Drive {drive} direction = {'reverse' if direction else 'forward'}")
         return "ok"
 
     def _generate_m114_response(self) -> str:

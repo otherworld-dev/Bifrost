@@ -37,6 +37,7 @@ from serial_response_router import SerialResponseRouter
 from visualization_controller import VisualizationController
 from position_history_manager import PositionHistoryManager
 from calibration_panel import load_gripper_calibration_on_startup
+from config_g_manager import read_m569_directions, DEFAULT_CONFIG_G_PATH
 from coordinate_frames import FrameManager
 
 import serial
@@ -1585,6 +1586,9 @@ class BifrostGUI(Ui_MainWindow):
         # Request initial position after thread is ready
         QtCore.QTimer.singleShot(50, self.requestInitialPosition)
 
+        # Sync motor directions from config.g to firmware
+        QtCore.QTimer.singleShot(100, self._syncMotorDirections)
+
         # Display appropriate connection message
         if self.SimulationModeCheckBox.isChecked():
             logger.info("=== CONNECTED TO SIMULATED ROBOT ===")
@@ -1614,6 +1618,22 @@ class BifrostGUI(Ui_MainWindow):
     def requestInitialPosition(self):
         """Request initial position and endstop status after connection (called by QTimer)"""
         self.connection_manager.request_position_update()
+
+    def _syncMotorDirections(self):
+        """Send M569 commands to firmware to match saved config.g motor directions."""
+        try:
+            directions = read_m569_directions(DEFAULT_CONFIG_G_PATH)
+            if not directions:
+                logger.warning("No M569 directions found in config.g")
+                return
+
+            for drive, s_value in sorted(directions.items()):
+                cmd = f"M569 P{drive} S{s_value}"
+                self.command_sender.send_if_connected(cmd, show_in_console=False)
+
+            logger.info(f"Synced {len(directions)} motor directions from config.g")
+        except Exception as e:
+            logger.error(f"Failed to sync motor directions: {e}")
 
     def serialDisconnected(self):
         """Handle serial disconnection - delegates to UIStateManager"""

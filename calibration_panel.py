@@ -10,7 +10,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from pathlib import Path
 import json
 import logging
-from forward_kinematics import get_dh_params, reload_dh_parameters, set_direction as fk_set_direction
+from forward_kinematics import get_dh_params, reload_dh_parameters
+from config_g_manager import JOINT_TO_DRIVES, get_joint_directions, set_joint_direction
 import config
 
 logger = logging.getLogger(__name__)
@@ -276,7 +277,6 @@ class DHParametersWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.spinboxes = {}
-        self.direction_combos = {}
         self._loading = False
         self.setup_ui()
         self.load_parameters()
@@ -293,20 +293,18 @@ class DHParametersWidget(QtWidgets.QWidget):
 
         # Create table
         self.table = QtWidgets.QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Link", "θ offset (°)", "Dir", "d (mm)", "a (mm)", "α (°)"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["Link", "θ offset (°)", "d (mm)", "a (mm)", "α (°)"])
         self.table.setRowCount(6)
 
         # Set column widths
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QtWidgets.QHeaderView.Fixed)
         header.setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.Stretch)
         header.setSectionResizeMode(3, QtWidgets.QHeaderView.Stretch)
         header.setSectionResizeMode(4, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(5, QtWidgets.QHeaderView.Stretch)
         self.table.setColumnWidth(0, 40)
-        self.table.setColumnWidth(2, 50)
 
         self.table.setAlternatingRowColors(True)
         self.table.setMinimumHeight(220)
@@ -343,14 +341,8 @@ class DHParametersWidget(QtWidgets.QWidget):
             self.table.setCellWidget(row, 1, spinbox)
             self.spinboxes[(row, 'theta_offset')] = spinbox
 
-            # Direction combobox
-            direction_combo = QtWidgets.QComboBox()
-            direction_combo.addItems(["+1", "-1"])
-            self.table.setCellWidget(row, 2, direction_combo)
-            self.direction_combos[row] = direction_combo
-
             # d, a, alpha spinboxes
-            for col, param in enumerate(['d', 'a', 'alpha'], start=3):
+            for col, param in enumerate(['d', 'a', 'alpha'], start=2):
                 spinbox = QtWidgets.QDoubleSpinBox()
                 spinbox.setRange(-1000 if param in ['d', 'a'] else -360, 1000 if param in ['d', 'a'] else 360)
                 spinbox.setDecimals(2)
@@ -361,11 +353,9 @@ class DHParametersWidget(QtWidgets.QWidget):
 
         main_layout.addWidget(self.table)
 
-        # Connect all spinboxes and combos to emit preview_changed
+        # Connect all spinboxes to emit preview_changed
         for spinbox in self.spinboxes.values():
             spinbox.valueChanged.connect(self._on_value_changed)
-        for combo in self.direction_combos.values():
-            combo.currentIndexChanged.connect(self._on_value_changed)
 
         # Buttons
         button_layout = QtWidgets.QHBoxLayout()
@@ -395,8 +385,6 @@ class DHParametersWidget(QtWidgets.QWidget):
                     self.spinboxes[(row, 'd')].setValue(link_data['d'])
                     self.spinboxes[(row, 'a')].setValue(link_data['a'])
                     self.spinboxes[(row, 'alpha')].setValue(link_data['alpha'])
-                    direction = link_data.get('direction', 1)
-                    self.direction_combos[row].setCurrentIndex(0 if direction == 1 else 1)
 
                 logger.info("Loaded DH parameters from file")
             else:
@@ -416,11 +404,9 @@ class DHParametersWidget(QtWidgets.QWidget):
         params = []
         descriptions = ["Base rotation", "Shoulder", "Elbow", "Wrist roll", "Wrist pitch", "Wrist yaw / TCP"]
         for row in range(6):
-            direction = 1 if self.direction_combos[row].currentIndex() == 0 else -1
             params.append({
                 "link": row + 1,
                 "theta_offset": self.spinboxes[(row, 'theta_offset')].value(),
-                "direction": direction,
                 "d": self.spinboxes[(row, 'd')].value(),
                 "a": self.spinboxes[(row, 'a')].value(),
                 "alpha": self.spinboxes[(row, 'alpha')].value(),
@@ -441,11 +427,9 @@ class DHParametersWidget(QtWidgets.QWidget):
             }
 
             for row in range(6):
-                direction = 1 if self.direction_combos[row].currentIndex() == 0 else -1
                 link_data = {
                     "link": row + 1,
                     "theta_offset": self.spinboxes[(row, 'theta_offset')].value(),
-                    "direction": direction,
                     "d": self.spinboxes[(row, 'd')].value(),
                     "a": self.spinboxes[(row, 'a')].value(),
                     "alpha": self.spinboxes[(row, 'alpha')].value(),
@@ -475,12 +459,12 @@ class DHParametersWidget(QtWidgets.QWidget):
         self._loading = True
         try:
             default_params = [
-                {"theta_offset": 0, "direction": 1, "d": 202, "a": 0, "alpha": 90},
-                {"theta_offset": 90, "direction": 1, "d": 0, "a": 160, "alpha": 0},
-                {"theta_offset": 90, "direction": 1, "d": 0, "a": 0, "alpha": 90},
-                {"theta_offset": 0, "direction": 1, "d": 195, "a": 0, "alpha": -90},
-                {"theta_offset": 0, "direction": 1, "d": 0, "a": 0, "alpha": 90},
-                {"theta_offset": 0, "direction": 1, "d": 67.15, "a": 0, "alpha": 0},
+                {"theta_offset": 0, "d": 202, "a": 0, "alpha": 90},
+                {"theta_offset": 90, "d": 0, "a": 160, "alpha": 0},
+                {"theta_offset": 90, "d": 0, "a": 0, "alpha": 90},
+                {"theta_offset": 0, "d": 195, "a": 0, "alpha": -90},
+                {"theta_offset": 0, "d": 0, "a": 0, "alpha": 90},
+                {"theta_offset": 0, "d": 67.15, "a": 0, "alpha": 0},
             ]
 
             for row, params in enumerate(default_params):
@@ -488,7 +472,6 @@ class DHParametersWidget(QtWidgets.QWidget):
                 self.spinboxes[(row, 'd')].setValue(params['d'])
                 self.spinboxes[(row, 'a')].setValue(params['a'])
                 self.spinboxes[(row, 'alpha')].setValue(params['alpha'])
-                self.direction_combos[row].setCurrentIndex(0 if params['direction'] == 1 else 1)
 
             logger.info("Reset DH parameters to defaults")
         finally:
@@ -611,37 +594,35 @@ class CalibrationPanel(QtWidgets.QWidget):
             self.status_label.setStyleSheet("background-color: #ccffcc; padding: 5px;")
 
     def on_joint_direction_changed(self, joint_name, direction):
-        """Save direction to DH parameters file and reload immediately."""
-        joint_to_link = {
-            'Art1': 0, 'Art2': 1, 'Art3': 2,
-            'Art4': 3, 'Art5': 4, 'Art6': 5
-        }
-        link_idx = joint_to_link.get(joint_name)
-        if link_idx is None:
+        """Send M569 command to firmware and update config.g for persistence."""
+        drives = JOINT_TO_DRIVES.get(joint_name)
+        if drives is None:
             return
 
         try:
-            with open(DH_PARAMS_FILE, 'r') as f:
-                dh_data = json.load(f)
-
-            dh_data['links'][link_idx]['direction'] = direction
-
-            with open(DH_PARAMS_FILE, 'w') as f:
-                json.dump(dh_data, f, indent=4)
-
-            reload_dh_parameters()
-
-            # Sync the DH parameters table combo so it reflects the change
-            if hasattr(self, 'dh_parameters') and self.dh_parameters:
-                combo = self.dh_parameters.direction_combos.get(link_idx)
-                if combo:
-                    combo.blockSignals(True)
-                    combo.setCurrentIndex(0 if direction == 1 else 1)
-                    combo.blockSignals(False)
-
+            s_value = 0 if direction == 1 else 1
             dir_label = 'Forward' if direction == 1 else 'Reverse'
-            logger.info(f"{joint_name} direction set to {dir_label}")
-            self.status_label.setText(f"Status: {joint_name} direction = {dir_label}")
+
+            # Send M569 commands to firmware for each drive
+            commands_sent = 0
+            if self.gui_instance and hasattr(self.gui_instance, 'command_sender'):
+                for drive in drives:
+                    command = f"M569 P{drive} S{s_value}"
+                    if self.gui_instance.command_sender.send_if_connected(command):
+                        commands_sent += 1
+                    else:
+                        logger.warning(f"Not connected - M569 P{drive} not sent")
+
+            # Always persist to config.g (even when not connected)
+            config_g_path = Path(__file__).parent / 'sys' / 'config.g'
+            set_joint_direction(config_g_path, joint_name, direction)
+
+            if commands_sent > 0:
+                logger.info(f"{joint_name} direction set to {dir_label} (sent {commands_sent} M569 command(s))")
+                self.status_label.setText(f"Status: {joint_name} = {dir_label} (M569 sent)")
+            else:
+                logger.info(f"{joint_name} direction set to {dir_label} (saved to config.g, not connected)")
+                self.status_label.setText(f"Status: {joint_name} = {dir_label} (saved, not connected)")
             self.status_label.setStyleSheet("background-color: #ccffcc; padding: 5px;")
 
         except Exception as e:
@@ -676,31 +657,18 @@ class CalibrationPanel(QtWidgets.QWidget):
             self.status_label.setStyleSheet("background-color: #ffcccc; padding: 5px;")
 
     def load_current_calibration(self):
-        """Load direction settings from DH parameters file"""
+        """Load direction settings from config.g M569 commands"""
         try:
-            dh_params = get_dh_params()
-            if dh_params is None:
-                raise ValueError("DH parameters not loaded")
+            config_g_path = Path(__file__).parent / 'sys' / 'config.g'
+            directions = get_joint_directions(config_g_path)
 
-            # Map link index to joint name
-            link_to_joint = {
-                0: 'Art1',
-                1: 'Art2',
-                2: 'Art3',
-                3: 'Art4',
-                4: 'Art5',
-                5: 'Art6'
-            }
-
-            for i, link_data in enumerate(dh_params):
-                joint_name = link_to_joint.get(i)
-                if joint_name and joint_name in self.joint_widgets:
-                    direction = link_data.get('direction', 1)
+            for joint_name, direction in directions.items():
+                if joint_name in self.joint_widgets:
                     self.joint_widgets[joint_name].set_direction(direction)
 
-            self.status_label.setText("Status: Loaded directions from DH parameters")
+            self.status_label.setText("Status: Loaded motor directions from config.g")
             self.status_label.setStyleSheet("background-color: #ccffcc; padding: 5px;")
-            logger.info("Loaded direction settings from dh_parameters.json")
+            logger.info("Loaded direction settings from config.g")
 
         except Exception as e:
             logger.error(f"Error loading calibration: {e}")

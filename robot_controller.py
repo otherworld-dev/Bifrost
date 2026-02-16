@@ -14,7 +14,6 @@ from typing import Dict, Tuple, Optional, Callable
 import logging
 import config
 import differential_kinematics as diff_kin
-from forward_kinematics import get_direction
 
 logger = logging.getLogger(__name__)
 
@@ -211,30 +210,16 @@ class RobotController:
         self.current_motor_v = validated['V']
         self.current_motor_w = validated['W']
 
-        # Get direction multipliers from DH parameters
-        # Apply direction to convert motor space back to user space
-        # Since direction is ±1, multiplying by direction inverts the transformation
-        dir1 = get_direction(0)  # Art1
-        dir2 = get_direction(1)  # Art2
-        dir3 = get_direction(2)  # Art3
-        dir4 = get_direction(3)  # Art4
-        dir5 = get_direction(4)  # Art5
-        dir6 = get_direction(5)  # Art6
-
-        # Calculate joint angles from differential motor positions (in motor space)
-        motor_art5, motor_art6 = diff_kin.DifferentialKinematics.motor_to_joint(
+        # Calculate joint angles from differential motor positions
+        art5, art6 = diff_kin.DifferentialKinematics.motor_to_joint(
             self.current_motor_v, self.current_motor_w
         )
 
-        # Convert motor space to user space by applying direction
-        art5 = motor_art5 * dir5
-        art6 = motor_art6 * dir6
-
-        # Update joint positions (convert motor space to user space)
-        self.current_positions['Art1'] = validated['X'] * dir1
-        self.current_positions['Art2'] = validated['Y'] * dir2
-        self.current_positions['Art3'] = validated['Z'] * dir3
-        self.current_positions['Art4'] = validated['U'] * dir4
+        # Update joint positions from firmware values
+        self.current_positions['Art1'] = validated['X']
+        self.current_positions['Art2'] = validated['Y']
+        self.current_positions['Art3'] = validated['Z']
+        self.current_positions['Art4'] = validated['U']
         self.current_positions['Art5'] = art5
         self.current_positions['Art6'] = art6
 

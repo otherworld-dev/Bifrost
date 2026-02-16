@@ -15,15 +15,8 @@ from typing import Dict, Optional, Callable, Tuple
 from dataclasses import dataclass
 
 import forward_kinematics as fk
-from forward_kinematics import get_direction
 import differential_kinematics as diff_kin
 from command_builder import CommandBuilder
-
-# Map joint names to DH link indices (0-indexed)
-JOINT_TO_LINK_INDEX = {
-    'Art1': 0, 'Art2': 1, 'Art3': 2,
-    'Art4': 3, 'Art5': 4, 'Art6': 5
-}
 
 logger = logging.getLogger(__name__)
 
@@ -240,29 +233,24 @@ class FKController:
         Returns:
             True if command sent, False otherwise
         """
-        # Apply direction multiplier from DH parameters
-        link_idx = JOINT_TO_LINK_INDEX.get(joint_name, 0)
-        direction = get_direction(link_idx)
-        motor_value = joint_value * direction
-
         # Log with appropriate detail based on joint type
         if config['type'] == 'coupled':
             logger.info(
-                f"{config['log_name']} commanded to: {joint_value}° -> "
-                f"Motor: {motor_value}° (dir={direction}) Axis: {config['axis']} (Drives {config['drives']})"
+                f"{config['log_name']} commanded to: {joint_value}° "
+                f"Axis: {config['axis']} (Drives {config['drives']})"
             )
         else:
             logger.info(
-                f"{config['log_name']} commanded to: {joint_value}° -> "
-                f"Motor: {motor_value}° (dir={direction}) Axis: {config['axis']}"
+                f"{config['log_name']} commanded to: {joint_value}° "
+                f"Axis: {config['axis']}"
             )
 
         # Get movement parameters
         movement_type, feedrate = self._get_movement_params()
 
-        # Build command with direction-adjusted value
+        # Build command
         command = CommandBuilder.build_single_axis_command(
-            movement_type, config['axis'], motor_value, feedrate
+            movement_type, config['axis'], joint_value, feedrate
         )
 
         # Send command
@@ -290,32 +278,27 @@ class FKController:
                 "No position feedback received yet - differential control may be inaccurate!"
             )
 
-        # Apply direction multipliers from DH parameters for differential joints
-        dir5 = get_direction(JOINT_TO_LINK_INDEX['Art5'])
-        dir6 = get_direction(JOINT_TO_LINK_INDEX['Art6'])
-
-        # Get current joint values (in user space) and apply direction for motor calculation
+        # Get current joint values and set the target for the moving joint
         current_motor_v, current_motor_w = self.robot_controller.get_differential_motor_positions()
         current_art5, current_art6 = diff_kin.DifferentialKinematics.motor_to_joint(
             current_motor_v, current_motor_w
         )
 
-        # Apply direction to convert user joint value to motor joint value
         if joint_name == 'Art5':
-            motor_art5 = joint_value * dir5
-            motor_art6 = current_art6  # Keep Art6 in motor space
+            target_art5 = joint_value
+            target_art6 = current_art6
         else:  # Art6
-            motor_art5 = current_art5  # Keep Art5 in motor space
-            motor_art6 = joint_value * dir6
+            target_art5 = current_art5
+            target_art6 = joint_value
 
-        # Calculate new motor positions using direction-adjusted values
-        motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(motor_art5, motor_art6)
+        # Calculate new motor positions
+        motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(target_art5, target_art6)
 
-        # Update tracked positions in controller (in motor space)
+        # Update tracked positions in controller
         self.robot_controller.update_differential_motors(motor_v, motor_w)
 
         logger.info(
-            f"{config['log_name']} commanded to: {joint_value}° (dir={dir5 if joint_name == 'Art5' else dir6}) -> "
+            f"{config['log_name']} commanded to: {joint_value}° -> "
             f"Differential: V={motor_v:.2f}°, W={motor_w:.2f}°"
         )
 
@@ -342,43 +325,27 @@ class FKController:
         Returns:
             True if command sent, False otherwise
         """
-        # Get direction multipliers from DH parameters
-        dir1 = get_direction(JOINT_TO_LINK_INDEX['Art1'])
-        dir2 = get_direction(JOINT_TO_LINK_INDEX['Art2'])
-        dir3 = get_direction(JOINT_TO_LINK_INDEX['Art3'])
-        dir4 = get_direction(JOINT_TO_LINK_INDEX['Art4'])
-        dir5 = get_direction(JOINT_TO_LINK_INDEX['Art5'])
-        dir6 = get_direction(JOINT_TO_LINK_INDEX['Art6'])
-
-        # Apply direction to convert user joint values to motor values
-        motor_art1 = joint_values.art1 * dir1
-        motor_art2 = joint_values.art2 * dir2
-        motor_art3 = joint_values.art3 * dir3
-        motor_art4 = joint_values.art4 * dir4
-        motor_art5 = joint_values.art5 * dir5
-        motor_art6 = joint_values.art6 * dir6
-
-        # Calculate differential motor positions using direction-adjusted values
+        # Calculate differential motor positions
         motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(
-            motor_art5, motor_art6
+            joint_values.art5, joint_values.art6
         )
 
         logger.info(
-            f"MoveAll: Art5={joint_values.art5}° (dir={dir5}) Art6={joint_values.art6}° (dir={dir6}) -> "
+            f"MoveAll: Art5={joint_values.art5}° Art6={joint_values.art6}° -> "
             f"Differential: V={motor_v:.2f}° W={motor_w:.2f}°"
         )
 
         # Get movement parameters
         movement_type, feedrate = self._get_movement_params()
 
-        # Build command for all axes with direction-adjusted values
+        # Build command for all axes
         command = CommandBuilder.build_axis_command(
             movement_type,
             {
-                "X": motor_art1,
-                "Y": motor_art2,
-                "Z": motor_art3,
-                "U": motor_art4,
+                "X": joint_values.art1,
+                "Y": joint_values.art2,
+                "Z": joint_values.art3,
+                "U": joint_values.art4,
                 "V": motor_v,
                 "W": motor_w
             },

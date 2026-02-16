@@ -48,20 +48,18 @@ class DHParametersPanel(QtWidgets.QWidget):
 
         # Create table
         self.table = QtWidgets.QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Link", "θ offset (°)", "Dir", "d (mm)", "a (mm)", "α (°)"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["Link", "θ offset (°)", "d (mm)", "a (mm)", "α (°)"])
         self.table.setRowCount(6)
 
         # Set column widths
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QtWidgets.QHeaderView.Fixed)
         header.setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.Fixed)  # Direction column
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.Stretch)
         header.setSectionResizeMode(3, QtWidgets.QHeaderView.Stretch)
         header.setSectionResizeMode(4, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(5, QtWidgets.QHeaderView.Stretch)
         self.table.setColumnWidth(0, 50)
-        self.table.setColumnWidth(2, 60)  # Direction column width
 
         # Style the table to match main app
         self.table.setAlternatingRowColors(True)
@@ -86,8 +84,6 @@ class DHParametersPanel(QtWidgets.QWidget):
         """)
 
         # Create spinboxes for each cell
-        self.direction_combos = {}  # Store direction comboboxes separately
-
         for row in range(6):
             # Link number (read-only)
             link_item = QtWidgets.QTableWidgetItem(str(row + 1))
@@ -116,26 +112,8 @@ class DHParametersPanel(QtWidgets.QWidget):
             self.table.setCellWidget(row, 1, spinbox)
             self.spinboxes[(row, 'theta_offset')] = spinbox
 
-            # Direction combobox (column 2)
-            direction_combo = QtWidgets.QComboBox()
-            direction_combo.addItems(["+1", "-1"])
-            direction_combo.setStyleSheet("""
-                QComboBox {
-                    background-color: #ffffff;
-                    color: #333333;
-                    border: 1px solid #ccc;
-                    padding: 2px;
-                }
-                QComboBox:focus {
-                    border: 1px solid #4CAF50;
-                }
-            """)
-            direction_combo.currentIndexChanged.connect(self._on_value_changed)
-            self.table.setCellWidget(row, 2, direction_combo)
-            self.direction_combos[row] = direction_combo
-
-            # d, a, alpha spinboxes (columns 3, 4, 5)
-            for col, param in enumerate(['d', 'a', 'alpha'], start=3):
+            # d, a, alpha spinboxes (columns 2, 3, 4)
+            for col, param in enumerate(['d', 'a', 'alpha'], start=2):
                 spinbox = QtWidgets.QDoubleSpinBox()
                 spinbox.setRange(-360, 360)
                 spinbox.setDecimals(2)
@@ -248,9 +226,6 @@ class DHParametersPanel(QtWidgets.QWidget):
                     self.spinboxes[(row, 'd')].setValue(link_data['d'])
                     self.spinboxes[(row, 'a')].setValue(link_data['a'])
                     self.spinboxes[(row, 'alpha')].setValue(link_data['alpha'])
-                    # Direction: default to 1 for backward compatibility
-                    direction = link_data.get('direction', 1)
-                    self.direction_combos[row].setCurrentIndex(0 if direction == 1 else 1)
 
                 self.status_label.setText("Status: Loaded from file")
                 self.status_label.setStyleSheet("padding: 5px; background-color: #c8e6c9; border: 1px solid #a5d6a7; border-radius: 3px; color: #2e7d32;")
@@ -283,12 +258,9 @@ class DHParametersPanel(QtWidgets.QWidget):
             descriptions = ["Base rotation", "Shoulder", "Elbow", "Wrist roll", "Wrist pitch", "Wrist yaw / TCP"]
 
             for row in range(6):
-                # Direction: +1 is index 0, -1 is index 1
-                direction = 1 if self.direction_combos[row].currentIndex() == 0 else -1
                 link_data = {
                     "link": row + 1,
                     "theta_offset": self.spinboxes[(row, 'theta_offset')].value(),
-                    "direction": direction,
                     "d": self.spinboxes[(row, 'd')].value(),
                     "a": self.spinboxes[(row, 'a')].value(),
                     "alpha": self.spinboxes[(row, 'alpha')].value(),
@@ -324,12 +296,12 @@ class DHParametersPanel(QtWidgets.QWidget):
         self._loading = True  # Prevent multiple signals during reset
         try:
             default_params = [
-                {"theta_offset": 0, "direction": 1, "d": 202, "a": 0, "alpha": 90},
-                {"theta_offset": 90, "direction": 1, "d": 0, "a": 160, "alpha": 0},
-                {"theta_offset": 90, "direction": 1, "d": 0, "a": 0, "alpha": 90},
-                {"theta_offset": 0, "direction": 1, "d": 195, "a": 0, "alpha": -90},
-                {"theta_offset": 0, "direction": 1, "d": 0, "a": 0, "alpha": 90},
-                {"theta_offset": 0, "direction": 1, "d": 67.15, "a": 0, "alpha": 0},
+                {"theta_offset": 0, "d": 202, "a": 0, "alpha": 90},
+                {"theta_offset": 90, "d": 0, "a": 160, "alpha": 0},
+                {"theta_offset": 90, "d": 0, "a": 0, "alpha": 90},
+                {"theta_offset": 0, "d": 195, "a": 0, "alpha": -90},
+                {"theta_offset": 0, "d": 0, "a": 0, "alpha": 90},
+                {"theta_offset": 0, "d": 67.15, "a": 0, "alpha": 0},
             ]
 
             for row, params in enumerate(default_params):
@@ -337,8 +309,6 @@ class DHParametersPanel(QtWidgets.QWidget):
                 self.spinboxes[(row, 'd')].setValue(params['d'])
                 self.spinboxes[(row, 'a')].setValue(params['a'])
                 self.spinboxes[(row, 'alpha')].setValue(params['alpha'])
-                # Direction: +1 is index 0, -1 is index 1
-                self.direction_combos[row].setCurrentIndex(0 if params['direction'] == 1 else 1)
 
             self.status_label.setText("Status: Reset to defaults")
             self.status_label.setStyleSheet("padding: 5px; background-color: #fff9c4; border: 1px solid #fff176; border-radius: 3px; color: #f57f17;")
@@ -351,12 +321,9 @@ class DHParametersPanel(QtWidgets.QWidget):
         """Get current DH parameters as a list of dicts"""
         params = []
         for row in range(6):
-            # Direction: +1 is index 0, -1 is index 1
-            direction = 1 if self.direction_combos[row].currentIndex() == 0 else -1
             params.append({
                 "link": row + 1,
                 "theta_offset": self.spinboxes[(row, 'theta_offset')].value(),
-                "direction": direction,
                 "d": self.spinboxes[(row, 'd')].value(),
                 "a": self.spinboxes[(row, 'a')].value(),
                 "alpha": self.spinboxes[(row, 'alpha')].value()

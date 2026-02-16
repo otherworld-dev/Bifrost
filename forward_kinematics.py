@@ -100,29 +100,6 @@ def get_theta_offset(link_index):
     return 0.0
 
 
-def get_direction(link_index):
-    """Get direction multiplier for a link (0-indexed). Returns 1 or -1."""
-    params = get_dh_params()
-    if params and link_index < len(params):
-        return params[link_index].get('direction', 1)
-    return 1
-
-
-def set_direction(link_index, direction):
-    """Set direction multiplier for a link (0-indexed) in-memory without file I/O.
-
-    Args:
-        link_index: 0-indexed link number
-        direction: 1 or -1
-    """
-    global _dh_params
-    if _dh_params is None:
-        load_dh_parameters()
-    if _dh_params and link_index < len(_dh_params):
-        _dh_params[link_index]['direction'] = direction
-        logger.info(f"Set link {link_index} direction to {direction} (in-memory)")
-
-
 def get_link_lengths() -> dict:
     """
     Get robot link lengths from DH parameters.
@@ -170,6 +147,7 @@ def compute_all_joint_positions(q1: float, q2: float, q3: float, q4: float, q5: 
     # Extract link parameters
     d1 = params[0]['d']   # Base height (Link 1)
     a2 = params[1]['a']   # Upper arm length (Link 2)
+    a3 = params[2]['a']   # Elbow offset (Link 3)
     d4 = params[3]['d']   # Forearm length (Link 4)
     d6 = params[5]['d']   # Wrist to TCP (Link 6)
 
@@ -181,22 +159,13 @@ def compute_all_joint_positions(q1: float, q2: float, q3: float, q4: float, q5: 
     theta_offset5 = np.radians(params[4]['theta_offset'])
     theta_offset6 = np.radians(params[5]['theta_offset'])
 
-    # Direction multipliers (default to 1 for backward compatibility)
-    dir1 = params[0].get('direction', 1)
-    dir2 = params[1].get('direction', 1)
-    dir3 = params[2].get('direction', 1)
-    dir4 = params[3].get('direction', 1)
-    dir5 = params[4].get('direction', 1)
-    dir6 = params[5].get('direction', 1)
-
-    # Convert joint angles to radians: apply direction, then add theta_offset
-    # Formula: q_rad = radians(q * direction) + theta_offset
-    q1_rad = np.radians(q1 * dir1) + theta_offset1
-    q2_rad = np.radians(q2 * dir2) + theta_offset2
-    q3_rad = np.radians(q3 * dir3) + theta_offset3
-    q4_rad = np.radians(q4 * dir4) + theta_offset4
-    q5_rad = np.radians(q5 * dir5) + theta_offset5
-    q6_rad = np.radians(q6 * dir6) + theta_offset6
+    # Convert joint angles to radians with theta_offset
+    q1_rad = np.radians(q1) + theta_offset1
+    q2_rad = np.radians(q2) + theta_offset2
+    q3_rad = np.radians(q3) + theta_offset3
+    q4_rad = np.radians(q4) + theta_offset4
+    q5_rad = np.radians(q5) + theta_offset5
+    q6_rad = np.radians(q6) + theta_offset6
 
     # Compute trig values
     c1, s1 = np.cos(q1_rad), np.sin(q1_rad)
@@ -209,7 +178,7 @@ def compute_all_joint_positions(q1: float, q2: float, q3: float, q4: float, q5: 
     # Get alpha values from parameters
     alpha1 = np.radians(params[0]['alpha'])  # 90
     alpha2 = np.radians(params[1]['alpha'])  # 0
-    alpha3 = np.radians(params[2]['alpha'])  # -90
+    alpha3 = np.radians(params[2]['alpha'])  # 90
     alpha4 = np.radians(params[3]['alpha'])  # -90
     alpha5 = np.radians(params[4]['alpha'])  # 90
     alpha6 = np.radians(params[5]['alpha'])  # 0
@@ -240,8 +209,8 @@ def compute_all_joint_positions(q1: float, q2: float, q3: float, q4: float, q5: 
 
     # Link 3
     A3 = np.array([
-        [c3, -s3 * ca3,  s3 * sa3, 0],
-        [s3,  c3 * ca3, -c3 * sa3, 0],
+        [c3, -s3 * ca3,  s3 * sa3, a3 * c3],
+        [s3,  c3 * ca3, -c3 * sa3, a3 * s3],
         [0,   sa3,       ca3,      0],
         [0,   0,         0,        1]
     ], dtype=np.float64)
@@ -307,6 +276,7 @@ def compute_all_joint_transforms(q1: float, q2: float, q3: float, q4: float, q5:
     # Extract link parameters
     d1 = params[0]['d']
     a2 = params[1]['a']
+    a3 = params[2]['a']
     d4 = params[3]['d']
 
     # Extract theta offsets and direction from DH parameters
@@ -317,19 +287,12 @@ def compute_all_joint_transforms(q1: float, q2: float, q3: float, q4: float, q5:
     theta_offset5 = np.radians(params[4]['theta_offset'])
     theta_offset6 = np.radians(params[5]['theta_offset'])
 
-    dir1 = params[0].get('direction', 1)
-    dir2 = params[1].get('direction', 1)
-    dir3 = params[2].get('direction', 1)
-    dir4 = params[3].get('direction', 1)
-    dir5 = params[4].get('direction', 1)
-    dir6 = params[5].get('direction', 1)
-
-    q1_rad = np.radians(q1 * dir1) + theta_offset1
-    q2_rad = np.radians(q2 * dir2) + theta_offset2
-    q3_rad = np.radians(q3 * dir3) + theta_offset3
-    q4_rad = np.radians(q4 * dir4) + theta_offset4
-    q5_rad = np.radians(q5 * dir5) + theta_offset5
-    q6_rad = np.radians(q6 * dir6) + theta_offset6
+    q1_rad = np.radians(q1) + theta_offset1
+    q2_rad = np.radians(q2) + theta_offset2
+    q3_rad = np.radians(q3) + theta_offset3
+    q4_rad = np.radians(q4) + theta_offset4
+    q5_rad = np.radians(q5) + theta_offset5
+    q6_rad = np.radians(q6) + theta_offset6
 
     c1, s1 = np.cos(q1_rad), np.sin(q1_rad)
     c2, s2 = np.cos(q2_rad), np.sin(q2_rad)
@@ -364,8 +327,8 @@ def compute_all_joint_transforms(q1: float, q2: float, q3: float, q4: float, q5:
     ], dtype=np.float64)
 
     A3 = np.array([
-        [c3, -s3 * ca3,  s3 * sa3, 0],
-        [s3,  c3 * ca3, -c3 * sa3, 0],
+        [c3, -s3 * ca3,  s3 * sa3, a3 * c3],
+        [s3,  c3 * ca3, -c3 * sa3, a3 * s3],
         [0,   sa3,       ca3,      0],
         [0,   0,         0,        1]
     ], dtype=np.float64)
@@ -439,25 +402,17 @@ def compute_tcp_transform(q1: float, q2: float, q3: float, q4: float, q5: float,
     # Extract link parameters
     d1 = params[0]['d']
     a2 = params[1]['a']
+    a3 = params[2]['a']
     d4 = params[3]['d']
     d6 = params[5]['d']  # TCP offset (d parameter)
 
-    # Extract theta offsets and direction, then compute joint angles
-    # Direction multipliers (default to 1 for backward compatibility)
-    dir1 = params[0].get('direction', 1)
-    dir2 = params[1].get('direction', 1)
-    dir3 = params[2].get('direction', 1)
-    dir4 = params[3].get('direction', 1)
-    dir5 = params[4].get('direction', 1)
-    dir6 = params[5].get('direction', 1)
-
-    # Formula: q_rad = radians(q * direction) + theta_offset
-    q1_rad = np.radians(q1 * dir1) + np.radians(params[0]['theta_offset'])
-    q2_rad = np.radians(q2 * dir2) + np.radians(params[1]['theta_offset'])
-    q3_rad = np.radians(q3 * dir3) + np.radians(params[2]['theta_offset'])
-    q4_rad = np.radians(q4 * dir4) + np.radians(params[3]['theta_offset'])
-    q5_rad = np.radians(q5 * dir5) + np.radians(params[4]['theta_offset'])
-    q6_rad = np.radians(q6 * dir6) + np.radians(params[5]['theta_offset'])
+    # Convert joint angles to radians with theta_offset
+    q1_rad = np.radians(q1) + np.radians(params[0]['theta_offset'])
+    q2_rad = np.radians(q2) + np.radians(params[1]['theta_offset'])
+    q3_rad = np.radians(q3) + np.radians(params[2]['theta_offset'])
+    q4_rad = np.radians(q4) + np.radians(params[3]['theta_offset'])
+    q5_rad = np.radians(q5) + np.radians(params[4]['theta_offset'])
+    q6_rad = np.radians(q6) + np.radians(params[5]['theta_offset'])
 
     c1, s1 = np.cos(q1_rad), np.sin(q1_rad)
     c2, s2 = np.cos(q2_rad), np.sin(q2_rad)
@@ -475,7 +430,7 @@ def compute_tcp_transform(q1: float, q2: float, q3: float, q4: float, q5: float,
     # Build transformation matrices (same as compute_all_joint_positions)
     A1 = np.array([[c1, -s1*ca1, s1*sa1, 0], [s1, c1*ca1, -c1*sa1, 0], [0, sa1, ca1, d1], [0, 0, 0, 1]], dtype=np.float64)
     A2 = np.array([[c2, -s2, 0, a2*c2], [s2, c2, 0, a2*s2], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=np.float64)
-    A3 = np.array([[c3, -s3*ca3, s3*sa3, 0], [s3, c3*ca3, -c3*sa3, 0], [0, sa3, ca3, 0], [0, 0, 0, 1]], dtype=np.float64)
+    A3 = np.array([[c3, -s3*ca3, s3*sa3, a3*c3], [s3, c3*ca3, -c3*sa3, a3*s3], [0, sa3, ca3, 0], [0, 0, 0, 1]], dtype=np.float64)
     A4 = np.array([[c4, -s4*ca4, s4*sa4, 0], [s4, c4*ca4, -c4*sa4, 0], [0, sa4, ca4, d4], [0, 0, 0, 1]], dtype=np.float64)
     A5 = np.array([[c5, -s5*ca5, s5*sa5, 0], [s5, c5*ca5, -c5*sa5, 0], [0, sa5, ca5, 0], [0, 0, 0, 1]], dtype=np.float64)
     A6 = np.array([[c6, -s6*ca6, s6*sa6, 0], [s6, c6*ca6, -c6*sa6, 0], [0, sa6, ca6, d6], [0, 0, 0, 1]], dtype=np.float64)

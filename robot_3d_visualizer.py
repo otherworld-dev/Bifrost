@@ -2029,6 +2029,7 @@ class Robot3DCanvas(gl.GLViewWidget):
                 if self._is_dirty:
                     self.show_home_position()
                     self._is_dirty = False
+                logger.debug("No position history data")
                 return
 
             # Get current joint angles (most recent)
@@ -2037,12 +2038,12 @@ class Robot3DCanvas(gl.GLViewWidget):
                 if self._is_dirty:
                     self.show_home_position()
                     self._is_dirty = False
+                logger.debug("current_angles is None")
                 return
 
             # OPTIMIZATION: Check if data actually changed
             tcp_trajectory = position_history.get_tcp_trajectory(window_size) if self.show_trajectory else []
             if not self._has_data_changed(current_angles, len(tcp_trajectory)) and not self.auto_rotate:
-                logger.debug("No data change - skipping redraw")
                 return
 
             # Data changed - update cache
@@ -2058,7 +2059,6 @@ class Robot3DCanvas(gl.GLViewWidget):
                 current_angles.get('art5', 0),
                 current_angles.get('art6', 0)
             )
-
             # OPTIMIZATION: Ensure grid is initialized (persistent, not recreated)
             if self.show_grid:
                 self._ensure_grid_initialized()

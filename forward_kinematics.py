@@ -194,19 +194,20 @@ def compute_all_joint_positions(q1: float, q2: float, q3: float, q4: float, q5: 
     # Get alpha values from parameters
     alpha1 = np.radians(params[0]['alpha'])  # 90
     alpha2 = np.radians(params[1]['alpha'])  # 0
-    alpha3 = np.radians(params[2]['alpha'])  # 90
+    alpha3 = np.radians(params[2]['alpha'])  # -90
     alpha4 = np.radians(params[3]['alpha'])  # -90
     alpha5 = np.radians(params[4]['alpha'])  # 90
     alpha6 = np.radians(params[5]['alpha'])  # 0
 
     ca1, sa1 = np.cos(alpha1), np.sin(alpha1)
+    ca3, sa3 = np.cos(alpha3), np.sin(alpha3)
     ca4, sa4 = np.cos(alpha4), np.sin(alpha4)
+    ca5, sa5 = np.cos(alpha5), np.sin(alpha5)
 
-    # Thor-specific transformation matrices using standard DH formula
+    # Standard DH transformation matrices
     # A = Rz(θ) * Tz(d) * Tx(a) * Rx(α)
-    # But constructed to match Thor robot geometry
 
-    # Link 1: α=90° rotates z-axis to point along original y
+    # Link 1
     A1 = np.array([
         [c1, -s1 * ca1,  s1 * sa1, 0],
         [s1,  c1 * ca1, -c1 * sa1, 0],
@@ -222,15 +223,15 @@ def compute_all_joint_positions(q1: float, q2: float, q3: float, q4: float, q5: 
         [0,   0,  0, 1]
     ], dtype=np.float64)
 
-    # Link 3: α=90°
+    # Link 3
     A3 = np.array([
-        [c3,  0,  s3, 0],
-        [s3,  0, -c3, 0],
-        [0,   1,   0, 0],
-        [0,   0,   0, 1]
+        [c3, -s3 * ca3,  s3 * sa3, 0],
+        [s3,  c3 * ca3, -c3 * sa3, 0],
+        [0,   sa3,       ca3,      0],
+        [0,   0,         0,        1]
     ], dtype=np.float64)
 
-    # Link 4: α=-90°, d=195
+    # Link 4
     A4 = np.array([
         [c4, -s4 * ca4,  s4 * sa4, 0],
         [s4,  c4 * ca4, -c4 * sa4, 0],
@@ -238,12 +239,12 @@ def compute_all_joint_positions(q1: float, q2: float, q3: float, q4: float, q5: 
         [0,   0,         0,        1]
     ], dtype=np.float64)
 
-    # Link 5: α=90°
+    # Link 5
     A5 = np.array([
-        [c5,  0,  s5, 0],
-        [s5,  0, -c5, 0],
-        [0,   1,   0, 0],
-        [0,   0,   0, 1]
+        [c5, -s5 * ca5,  s5 * sa5, 0],
+        [s5,  c5 * ca5, -c5 * sa5, 0],
+        [0,   sa5,       ca5,      0],
+        [0,   0,         0,        1]
     ], dtype=np.float64)
 
     # Link 6: uses alpha from config for TCP frame orientation
@@ -323,10 +324,14 @@ def compute_all_joint_transforms(q1: float, q2: float, q3: float, q4: float, q5:
     c6, s6 = np.cos(q6_rad), np.sin(q6_rad)
 
     alpha1 = np.radians(params[0]['alpha'])
+    alpha3 = np.radians(params[2]['alpha'])
     alpha4 = np.radians(params[3]['alpha'])
+    alpha5 = np.radians(params[4]['alpha'])
 
     ca1, sa1 = np.cos(alpha1), np.sin(alpha1)
+    ca3, sa3 = np.cos(alpha3), np.sin(alpha3)
     ca4, sa4 = np.cos(alpha4), np.sin(alpha4)
+    ca5, sa5 = np.cos(alpha5), np.sin(alpha5)
 
     # Build transformation matrices (same as compute_all_joint_positions)
     A1 = np.array([
@@ -344,10 +349,10 @@ def compute_all_joint_transforms(q1: float, q2: float, q3: float, q4: float, q5:
     ], dtype=np.float64)
 
     A3 = np.array([
-        [c3,  0,  s3, 0],
-        [s3,  0, -c3, 0],
-        [0,   1,   0, 0],
-        [0,   0,   0, 1]
+        [c3, -s3 * ca3,  s3 * sa3, 0],
+        [s3,  c3 * ca3, -c3 * sa3, 0],
+        [0,   sa3,       ca3,      0],
+        [0,   0,         0,        1]
     ], dtype=np.float64)
 
     A4 = np.array([
@@ -358,10 +363,10 @@ def compute_all_joint_transforms(q1: float, q2: float, q3: float, q4: float, q5:
     ], dtype=np.float64)
 
     A5 = np.array([
-        [c5,  0,  s5, 0],
-        [s5,  0, -c5, 0],
-        [0,   1,   0, 0],
-        [0,   0,   0, 1]
+        [c5, -s5 * ca5,  s5 * sa5, 0],
+        [s5,  c5 * ca5, -c5 * sa5, 0],
+        [0,   sa5,       ca5,      0],
+        [0,   0,         0,        1]
     ], dtype=np.float64)
 
     d6 = params[5]['d']
@@ -447,15 +452,17 @@ def compute_tcp_transform(q1: float, q2: float, q3: float, q4: float, q5: float,
     c6, s6 = np.cos(q6_rad), np.sin(q6_rad)
 
     ca1, sa1 = np.cos(np.radians(params[0]['alpha'])), np.sin(np.radians(params[0]['alpha']))
+    ca3, sa3 = np.cos(np.radians(params[2]['alpha'])), np.sin(np.radians(params[2]['alpha']))
     ca4, sa4 = np.cos(np.radians(params[3]['alpha'])), np.sin(np.radians(params[3]['alpha']))
+    ca5, sa5 = np.cos(np.radians(params[4]['alpha'])), np.sin(np.radians(params[4]['alpha']))
     ca6, sa6 = np.cos(np.radians(params[5]['alpha'])), np.sin(np.radians(params[5]['alpha']))
 
     # Build transformation matrices (same as compute_all_joint_positions)
     A1 = np.array([[c1, -s1*ca1, s1*sa1, 0], [s1, c1*ca1, -c1*sa1, 0], [0, sa1, ca1, d1], [0, 0, 0, 1]], dtype=np.float64)
     A2 = np.array([[c2, -s2, 0, a2*c2], [s2, c2, 0, a2*s2], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=np.float64)
-    A3 = np.array([[c3, 0, s3, 0], [s3, 0, -c3, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=np.float64)
+    A3 = np.array([[c3, -s3*ca3, s3*sa3, 0], [s3, c3*ca3, -c3*sa3, 0], [0, sa3, ca3, 0], [0, 0, 0, 1]], dtype=np.float64)
     A4 = np.array([[c4, -s4*ca4, s4*sa4, 0], [s4, c4*ca4, -c4*sa4, 0], [0, sa4, ca4, d4], [0, 0, 0, 1]], dtype=np.float64)
-    A5 = np.array([[c5, 0, s5, 0], [s5, 0, -c5, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=np.float64)
+    A5 = np.array([[c5, -s5*ca5, s5*sa5, 0], [s5, c5*ca5, -c5*sa5, 0], [0, sa5, ca5, 0], [0, 0, 0, 1]], dtype=np.float64)
     A6 = np.array([[c6, -s6*ca6, s6*sa6, 0], [s6, c6*ca6, -c6*sa6, 0], [0, sa6, ca6, d6], [0, 0, 0, 1]], dtype=np.float64)
 
     return A1 @ A2 @ A3 @ A4 @ A5 @ A6

@@ -1,7 +1,7 @@
 {
     "version": "1.1",
     "description": "Thor Robot DH Parameters",
-    "date_modified": "2026-01-13",
+    "date_modified": "2026-02-16",
     "links": [
         {
             "link": 1,
@@ -18,7 +18,7 @@
             "direction": 1,
             "d": 0.0,
             "a": 160.0,
-            "alpha": -4.0,
+            "alpha": 0.0,
             "description": "Shoulder"
         },
         {
@@ -26,7 +26,7 @@
             "theta_offset": 90.0,
             "direction": 1,
             "d": 0.0,
-            "a": 0.0,
+            "a": -6.0,
             "alpha": 90.0,
             "description": "Elbow"
         },
@@ -54,7 +54,7 @@
             "direction": 1,
             "d": 67.15,
             "a": 0.0,
-            "alpha": -90.0,
+            "alpha": 0.0,
             "description": "Wrist yaw / TCP"
         }
     ]

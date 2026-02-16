@@ -634,21 +634,47 @@ class Robot3DCanvas(gl.GLViewWidget):
                         pass
             self.grid_label_items = []
 
-            # Create grid
-            grid_size = max_reach * 2.5
+            # Create grid - snap size to multiple of 2*spacing so lines pass through origin
+            grid_spacing = 50
+            grid_size_raw = max_reach * 2.5
+            grid_size = int(np.ceil(grid_size_raw / (grid_spacing * 2)) * (grid_spacing * 2))
             self.grid_item = gl.GLGridItem()
             self.grid_item.setSize(grid_size, grid_size)
-            self.grid_item.setSpacing(50, 50)  # 50mm grid spacing
+            self.grid_item.setSpacing(grid_spacing, grid_spacing)
             self.grid_item.setColor(pg.mkColor(50, 50, 50, 200))  # Dark grey grid
-            self.grid_item.translate(0, 0, 0)  # At Z=0
             self.addItem(self.grid_item)
 
-            # Add coordinate labels along axes
+            # Thick axis lines along X=0, Y=0 spanning the full grid
+            grid_half = grid_size / 2
+            axis_line_width = 3
+            axis_line_alpha = 0.6
+
+            # X-axis line (along X at Y=0, Z=0)
+            x_axis_line = gl.GLLinePlotItem(
+                pos=np.array([[-grid_half, 0, 0], [grid_half, 0, 0]]),
+                color=(0.8, 0.0, 0.0, axis_line_alpha),
+                width=axis_line_width,
+                antialias=True
+            )
+            self.addItem(x_axis_line)
+            self.grid_label_items.append(x_axis_line)
+
+            # Y-axis line (along Y at X=0, Z=0)
+            y_axis_line = gl.GLLinePlotItem(
+                pos=np.array([[0, -grid_half, 0], [0, grid_half, 0]]),
+                color=(0.0, 0.6, 0.0, axis_line_alpha),
+                width=axis_line_width,
+                antialias=True
+            )
+            self.addItem(y_axis_line)
+            self.grid_label_items.append(y_axis_line)
+
+            # Add coordinate labels along axes at round multiples of label_spacing
             label_spacing = 100  # Label every 100mm
-            label_range = int(grid_size / 2)
+            max_label = (int(grid_size / 2) // label_spacing) * label_spacing
 
             # X-axis labels (along positive and negative X)
-            for x in range(-label_range, label_range + 1, label_spacing):
+            for x in range(-max_label, max_label + 1, label_spacing):
                 if x == 0:
                     continue  # Skip origin
                 text_item = gl.GLTextItem(
@@ -661,7 +687,7 @@ class Robot3DCanvas(gl.GLViewWidget):
                 self.grid_label_items.append(text_item)
 
             # Y-axis labels (along positive and negative Y)
-            for y in range(-label_range, label_range + 1, label_spacing):
+            for y in range(-max_label, max_label + 1, label_spacing):
                 if y == 0:
                     continue  # Skip origin
                 text_item = gl.GLTextItem(
@@ -685,7 +711,7 @@ class Robot3DCanvas(gl.GLViewWidget):
 
             # Axis labels
             x_label = gl.GLTextItem(
-                pos=np.array([label_range + 20, 0, 0]),
+                pos=np.array([max_label + 20, 0, 0]),
                 text='X+',
                 color=pg.mkColor(200, 0, 0, 255),
                 font=QtGui.QFont('Arial', 10, QtGui.QFont.Bold)
@@ -694,7 +720,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             self.grid_label_items.append(x_label)
 
             y_label = gl.GLTextItem(
-                pos=np.array([0, label_range + 20, 0]),
+                pos=np.array([0, max_label + 20, 0]),
                 text='Y+',
                 color=pg.mkColor(0, 150, 0, 255),
                 font=QtGui.QFont('Arial', 10, QtGui.QFont.Bold)
@@ -1317,7 +1343,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.base_frame_items = []
 
         origin = np.array([0, 0, 0])
-        arrow_width = 4  # Thicker lines for visibility
+        arrow_width = 6  # Thicker lines for visibility
 
         # X axis - Red (FORWARD DIRECTION)
         x_axis_points = np.array([origin, origin + [length, 0, 0]])
@@ -1889,7 +1915,9 @@ class Robot3DCanvas(gl.GLViewWidget):
         # Create grid using cached workspace
         workspace = self._get_workspace_envelope_cached()
         max_reach = workspace['radius']
-        grid_size = max_reach * 2.5
+        # Snap size to multiple of 2*spacing so grid lines pass through origin
+        grid_spacing = 50
+        grid_size = int(np.ceil(max_reach * 2.5 / (grid_spacing * 2)) * (grid_spacing * 2))
 
         # Remove old grid if exists
         if self.grid_item is not None:
@@ -1900,9 +1928,8 @@ class Robot3DCanvas(gl.GLViewWidget):
 
         self.grid_item = gl.GLGridItem()
         self.grid_item.setSize(grid_size, grid_size)
-        self.grid_item.setSpacing(50, 50)
+        self.grid_item.setSpacing(grid_spacing, grid_spacing)
         self.grid_item.setColor(pg.mkColor(50, 50, 50, 200))
-        self.grid_item.translate(0, 0, 0)
         self.addItem(self.grid_item)
 
         self._grid_initialized = True

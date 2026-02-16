@@ -1563,6 +1563,10 @@ class TerminalModePanel(QFrame):
         self.QuickG28Button = QPushButton("G28 (Home)")
         quick_layout.addWidget(self.QuickG28Button)
 
+        self.QuickG92Button = QPushButton("G92 (Set Zero)")
+        self.QuickG92Button.setToolTip("Set all joint positions to 0 (bypass endstops)")
+        quick_layout.addWidget(self.QuickG92Button)
+
         input_layout.addLayout(quick_layout)
 
         layout.addWidget(input_group)
@@ -1921,3 +1925,4 @@ class Ui_MainWindow:
         self.QuickM114Button = self.terminal_panel.QuickM114Button
         self.QuickM119Button = self.terminal_panel.QuickM119Button
         self.QuickG28Button = self.terminal_panel.QuickG28Button
+        self.QuickG92Button = self.terminal_panel.QuickG92Button

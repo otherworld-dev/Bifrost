@@ -300,6 +300,7 @@ class BifrostGUI(Ui_MainWindow):
         self.QuickM114Button.pressed.connect(lambda: self.sendQuickCommand("M114"))
         self.QuickM119Button.pressed.connect(lambda: self.sendQuickCommand("M119"))
         self.QuickG28Button.pressed.connect(lambda: self.sendQuickCommand("G28"))
+        self.QuickG92Button.pressed.connect(lambda: self.sendQuickCommand("G92 X0 Y0 Z0 U0 V0 W0"))
 
         # IK Control connections with debounce
         # Use timer to batch rapid spinbox changes for smoother GUI
@@ -1433,9 +1434,7 @@ class BifrostGUI(Ui_MainWindow):
         self.getSerialPorts()
 
     def _updateSimulationVisualization(self):
-        """Update 3D visualization directly from current spinbox values (no connection needed)"""
-        if not hasattr(self, 'position_canvas') or not self.position_canvas:
-            return
+        """Update 3D visualization and axis column displays from current spinbox values (no connection needed)"""
         joint_angles = [
             self.SpinBoxArt1.value(),
             self.SpinBoxArt2.value(),
@@ -1444,7 +1443,22 @@ class BifrostGUI(Ui_MainWindow):
             self.SpinBoxArt5.value(),
             self.SpinBoxArt6.value()
         ]
-        self.position_canvas.update_robot(joint_angles)
+
+        # Update 3D visualization
+        if hasattr(self, 'position_canvas') and self.position_canvas:
+            self.position_canvas.update_robot(joint_angles)
+
+        # Update axis column value labels so the sidebar reflects current positions
+        if hasattr(self, 'axis_column'):
+            joint_mapping = [("J1", 0), ("J2", 1), ("J3", 2),
+                             ("J4", 3), ("J5", 4), ("J6", 5)]
+            for axis_name, idx in joint_mapping:
+                if axis_name in self.axis_column.rows:
+                    self.axis_column.rows[axis_name].set_value(joint_angles[idx])
+
+            # Update gripper display too
+            if "Gripper" in self.axis_column.rows:
+                self.axis_column.rows["Gripper"].set_value(self.SpinBoxGripper.value())
 
     def connectSerial(self):
         """Connect to or disconnect from serial port"""

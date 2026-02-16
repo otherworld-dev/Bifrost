@@ -379,7 +379,8 @@ class BifrostGUI(Ui_MainWindow):
             list_clear_callback=self._onSequenceCleared,
             list_remove_callback=self._onSequencePointRemoved,
             button_state_callback=self._onSequenceButtonStateChanged,
-            pause_text_callback=self._onSequencePauseTextChanged
+            pause_text_callback=self._onSequencePauseTextChanged,
+            simulation_move_callback=self._onSimulationSequenceMove
         )
         # Backward compatibility references
         self.sequence_recorder = self.sequence_controller.recorder
@@ -387,6 +388,14 @@ class BifrostGUI(Ui_MainWindow):
         self.is_playing_sequence = False
         self.sequence_timer = QtCore.QTimer()
         self.sequence_timer.timeout.connect(self.updateSequencePlayback)
+
+        # Simulation interpolation state
+        self._sim_interp_timer = QtCore.QTimer()
+        self._sim_interp_timer.timeout.connect(self._tickSimulationInterpolation)
+        self._sim_interp_start = None   # [q1..q6, gripper] start values
+        self._sim_interp_end = None     # [q1..q6, gripper] target values
+        self._sim_interp_elapsed = 0.0
+        self._sim_interp_duration = 0.0
 
         # Only setup classic GUI sequence controls if not using modern GUI
         # Modern GUI has these controls built into TEACH mode panel
@@ -470,11 +479,22 @@ class BifrostGUI(Ui_MainWindow):
         # Set command sender for sequence controller
         self.sequence_controller.command_sender = self.command_sender
 
-        # Connect teach panel signals for manual point entry (modern GUI only)
+        # Connect teach panel signals (modern GUI only)
+        # In legacy GUI these connections are made in setupSequenceControls()
         if config.USE_MODERN_GUI and hasattr(self, 'teach_panel'):
             self.teach_panel.manualPointRequested.connect(self.openAddManualPointDialog)
             self.teach_panel.pointEditRequested.connect(self.openEditPointDialog)
             self.teach_panel.importCsvRequested.connect(self.importCsvSequence)
+
+            # Connect sequence control buttons
+            self.sequenceRecordButton.pressed.connect(self.recordSequencePoint)
+            self.sequenceDeleteButton.pressed.connect(self.deleteSequencePoint)
+            self.sequenceClearButton.pressed.connect(self.clearSequence)
+            self.sequencePlayButton.pressed.connect(self.playSequence)
+            self.sequencePauseButton.pressed.connect(self.pauseSequence)
+            self.sequenceStopButton.pressed.connect(self.stopSequence)
+            self.sequenceSaveButton.pressed.connect(self.saveSequence)
+            self.sequenceLoadButton.pressed.connect(self.loadSequence)
 
         # Set command sender for FK controller
         self.fk_controller.command_sender = self.command_sender
@@ -578,6 +598,13 @@ class BifrostGUI(Ui_MainWindow):
 
     def sendHomingCycleCommand(self):
         """Send G28 homing command (RRF: Home all axes)"""
+        if self.SimulationModeCheckBox.isChecked():
+            # In simulation mode, reset all joints to zero
+            for spinbox in [self.SpinBoxArt1, self.SpinBoxArt2, self.SpinBoxArt3,
+                            self.SpinBoxArt4, self.SpinBoxArt5, self.SpinBoxArt6]:
+                spinbox.setValue(0.0)
+            self._updateSimulationVisualization()
+            return
         if self.command_sender.send_if_connected("G28"):
             # Update button state to indicate homing in progress
             self.is_homing = True
@@ -1170,6 +1197,10 @@ class BifrostGUI(Ui_MainWindow):
             self.calibration_panel.gui_instance = self
             logger.info("Calibration panel linked to GUI instance")
 
+        # Connect joint frames checkbox to canvas flag
+        if hasattr(self, 'show_joint_frames_check'):
+            self.show_joint_frames_check.toggled.connect(self._onJointFramesToggled)
+
         # Connect DH panel signals (deferred to ensure all widgets are ready)
         # Use QTimer.singleShot to connect after event loop processes pending events
         QtCore.QTimer.singleShot(100, self._connectDHPanelSignals)
@@ -1287,6 +1318,7 @@ class BifrostGUI(Ui_MainWindow):
     def stopSequence(self):
         """Stop sequence playback. Delegates to SequenceController."""
         self.sequence_timer.stop()
+        self._sim_interp_timer.stop()
         self.sequence_controller.stop_playback()
         self.is_playing_sequence = False
 
@@ -1421,6 +1453,7 @@ class BifrostGUI(Ui_MainWindow):
 
     def _onSimulationModeToggled(self, enabled):
         """Handle simulation mode checkbox toggle"""
+        self.sequence_controller.simulation_mode = enabled
         if enabled:
             logger.info("Simulation mode enabled - direct visualization control")
             self.SerialPortComboBox.setEnabled(False)
@@ -1459,6 +1492,44 @@ class BifrostGUI(Ui_MainWindow):
             # Update gripper display too
             if "Gripper" in self.axis_column.rows:
                 self.axis_column.rows["Gripper"].set_value(self.SpinBoxGripper.value())
+
+    def _onSimulationSequenceMove(self, q1, q2, q3, q4, q5, q6, gripper, duration):
+        """Start interpolated movement to target position in simulation mode."""
+        SIM_INTERP_FPS = 30
+        self._sim_interp_start = [
+            self.SpinBoxArt1.value(), self.SpinBoxArt2.value(), self.SpinBoxArt3.value(),
+            self.SpinBoxArt4.value(), self.SpinBoxArt5.value(), self.SpinBoxArt6.value(),
+            self.SpinBoxGripper.value()
+        ]
+        self._sim_interp_end = [q1, q2, q3, q4, q5, q6, gripper]
+        self._sim_interp_elapsed = 0.0
+        # Use 80% of the delay so animation finishes before the next point fires
+        self._sim_interp_duration = max(duration * 0.8, 0.1)
+        interval_ms = int(1000 / SIM_INTERP_FPS)
+        self._sim_interp_timer.start(interval_ms)
+
+    def _tickSimulationInterpolation(self):
+        """Advance one frame of simulation interpolation."""
+        SIM_INTERP_FPS = 30
+        dt = 1.0 / SIM_INTERP_FPS
+        self._sim_interp_elapsed += dt
+        t = min(self._sim_interp_elapsed / self._sim_interp_duration, 1.0)
+        # Smooth-step for nicer easing
+        t = t * t * (3.0 - 2.0 * t)
+
+        spinboxes = [
+            self.SpinBoxArt1, self.SpinBoxArt2, self.SpinBoxArt3,
+            self.SpinBoxArt4, self.SpinBoxArt5, self.SpinBoxArt6,
+            self.SpinBoxGripper
+        ]
+        for i, spinbox in enumerate(spinboxes):
+            val = self._sim_interp_start[i] + t * (self._sim_interp_end[i] - self._sim_interp_start[i])
+            spinbox.setValue(val)
+
+        self._updateSimulationVisualization()
+
+        if t >= 1.0:
+            self._sim_interp_timer.stop()
 
     def connectSerial(self):
         """Connect to or disconnect from serial port"""
@@ -1793,6 +1864,17 @@ class BifrostGUI(Ui_MainWindow):
         if hasattr(self, 'show_trajectory_check'):
             return self.show_trajectory_check.isChecked()
         return False
+
+    def _onJointFramesToggled(self, enabled):
+        """Handle joint frames checkbox toggle"""
+        if hasattr(self, 'position_canvas') and self.position_canvas:
+            self.position_canvas.show_joint_frames = enabled
+            # Re-render immediately with current joint angles
+            joint_angles = [
+                self.SpinBoxArt1.value(), self.SpinBoxArt2.value(), self.SpinBoxArt3.value(),
+                self.SpinBoxArt4.value(), self.SpinBoxArt5.value(), self.SpinBoxArt6.value()
+            ]
+            self.position_canvas.update_robot(joint_angles)
 
     def _getAutoRotateEnabled(self):
         """Callback to get auto-rotate checkbox state"""

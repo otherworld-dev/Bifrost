@@ -511,6 +511,8 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.show_labels = False
         self.auto_rotate = False
         self.rotation_angle = 45  # Current azimuth for auto-rotate
+        self.show_joint_frames = False
+        self._joint_frame_items = []  # GL items for joint coordinate frames
 
         # STL visualisation options
         self.use_stl = STL_AVAILABLE  # Use STL meshes if available
@@ -824,6 +826,11 @@ class Robot3DCanvas(gl.GLViewWidget):
             current_positions = self._compute_fk_cached(*angles)
             self.current_joint_positions = current_positions
             self._draw_robot_primitives(current_positions, active=True)
+
+        if self.show_joint_frames:
+            self.draw_joint_frames(*angles)
+        else:
+            self._clear_joint_frames()
 
     def clear_all_items(self):
         """Remove all graphics items from the view"""
@@ -1477,6 +1484,23 @@ class Robot3DCanvas(gl.GLViewWidget):
         )
         self.addItem(z_axis)
         self.tcp_frame_items.append(z_axis)
+
+    def draw_joint_frames(self, q1, q2, q3, q4, q5, q6, length=30):
+        """Draw coordinate frames at each joint origin."""
+        self._clear_joint_frames()
+
+        transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
+        # transforms[0]=base, [1]=J1, [2]=J2, ..., [6]=TCP
+        for i, T in enumerate(transforms):
+            items = self.draw_coordinate_frame(T, name=f"joint_{i}", length=length, width=2)
+            self._joint_frame_items.extend(items)
+
+    def _clear_joint_frames(self):
+        """Remove all joint frame GL items."""
+        for item in self._joint_frame_items:
+            if item is not None:
+                self.removeItem(item)
+        self._joint_frame_items = []
 
     def draw_coordinate_frame(
         self,

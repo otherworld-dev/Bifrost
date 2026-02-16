@@ -68,7 +68,8 @@ class SequenceController:
         list_clear_callback: Optional[Callable[[], None]] = None,
         list_remove_callback: Optional[Callable[[int], None]] = None,
         button_state_callback: Optional[Callable[[str, bool], None]] = None,
-        pause_text_callback: Optional[Callable[[str], None]] = None
+        pause_text_callback: Optional[Callable[[str], None]] = None,
+        simulation_move_callback: Optional[Callable[[float, float, float, float, float, float, float, float], None]] = None
     ):
         """
         Initialize sequence controller.
@@ -80,6 +81,7 @@ class SequenceController:
             list_remove_callback: Callback(index) to remove item from list
             button_state_callback: Callback(button_name, enabled) to update button states
             pause_text_callback: Callback(text) to update pause button text
+            simulation_move_callback: Callback(q1..q6, gripper, duration_s) for simulation mode movement
         """
         self.command_sender = command_sender
 
@@ -89,11 +91,13 @@ class SequenceController:
         self.list_remove_callback = list_remove_callback
         self.button_state_callback = button_state_callback
         self.pause_text_callback = pause_text_callback
+        self.simulation_move_callback = simulation_move_callback
 
         # Internal state
         self.recorder = seq_rec.SequenceRecorder()
         self.player: Optional[seq_rec.SequencePlayer] = None
         self.playback_state = PlaybackState()
+        self.simulation_mode = False
 
         # Movement parameters (can be updated from GUI)
         self.movement_type = "G0"
@@ -499,6 +503,18 @@ class SequenceController:
             f"Executing sequence move: q1={q1:.1f}°, q2={q2:.1f}°, q3={q3:.1f}°, "
             f"q4={q4:.1f}°, q5={q5:.1f}°, q6={q6:.1f}°, grip={gripper}"
         )
+
+        # In simulation mode, delegate to simulation callback instead of serial
+        if self.simulation_mode and self.simulation_move_callback:
+            # Calculate animation duration from next point's delay
+            duration = 0.5  # default fallback in seconds
+            if self.player and self.player.current_sequence:
+                next_idx = self.player.current_point_index + 1
+                seq = self.player.current_sequence
+                if next_idx < len(seq):
+                    duration = seq.points[next_idx].delay / self.player.speed_multiplier
+            self.simulation_move_callback(q1, q2, q3, q4, q5, q6, gripper, duration)
+            return
 
         # Calculate differential motor positions
         motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(q5, q6)

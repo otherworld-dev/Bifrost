@@ -23,12 +23,12 @@ BLOCKING_COMMAND_MAX_PAUSE = 30.0  # Maximum pause - force resume even without "
 # ========== Position Feedback & Validation ==========
 # Position limits for each axis (degrees)
 POSITION_LIMITS = {
-    'X': (-720, 720),   # Art1 base rotation (continuous, allow ±2 full rotations)
-    'Y': (-180, 180),   # Art2 shoulder (coupled motors)
-    'Z': (-180, 180),   # Art3 elbow
-    'U': (-720, 720),   # Art4 wrist roll (continuous, allow ±2 full rotations)
-    'V': (-720, 720),   # Differential motor V (increased for multi-turn capability)
-    'W': (-720, 720),   # Differential motor W (increased for multi-turn capability)
+    'X': (-97, 97),      # Art1 base rotation (matches firmware M208)
+    'Y': (-90, 90),      # Art2 shoulder (coupled motors)
+    'Z': (-90, 90),      # Art3 elbow
+    'U': (-180, 180),    # Art4 wrist roll
+    'V': (-90, 90),      # Differential motor V (matches firmware M208)
+    'W': (0, 200),       # Differential motor W (matches firmware M208)
 }
 
 # Maximum position change per 100ms update (degrees)

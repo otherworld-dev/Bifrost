@@ -15,6 +15,7 @@ from typing import Dict, Optional, Callable, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 
 import inverse_kinematics as ik
+import forward_kinematics as fk
 from coordinate_frames import FrameManager, pose_from_xyz_rpy, pose_to_xyz_rpy
 
 if TYPE_CHECKING:
@@ -216,7 +217,9 @@ class IKController:
         self.last_solution = result
         return result
 
-    def calculate_and_update(self, x: float, y: float, z: float) -> IKSolutionResult:
+    def calculate_and_update(self, x: float, y: float, z: float,
+                             roll_deg: float = 0.0, pitch_deg: float = -90.0,
+                             yaw_deg: float = 0.0) -> IKSolutionResult:
         """
         Calculate IK and update all GUI elements via callbacks.
 
@@ -224,11 +227,17 @@ class IKController:
 
         Args:
             x, y, z: Target position in mm
+            roll_deg, pitch_deg, yaw_deg: Target orientation in degrees
 
         Returns:
             IKSolutionResult with joint angles or error
         """
-        target = IKTarget(x=x, y=y, z=z)
+        target = IKTarget(
+            x=x, y=y, z=z,
+            roll=np.radians(roll_deg),
+            pitch=np.radians(pitch_deg),
+            yaw=np.radians(yaw_deg)
+        )
         result = self.calculate_ik(target)
 
         # Update GUI via callbacks
@@ -302,6 +311,82 @@ class IKController:
         else:
             logger.warning("[JOG MODE] IK solution invalid, movement not executed")
             return False
+
+    def calculate_jacobian_move(self, current_joints: list, cartesian_delta: list,
+                                damping: float = 0.5) -> Optional[Dict[str, float]]:
+        """
+        Compute new joint angles for a Cartesian increment using the Jacobian.
+
+        Uses separate position (3x6) and orientation (3x6) sub-Jacobians
+        to avoid scaling issues between mm and radians.
+
+        Args:
+            current_joints: [q1, q2, q3, q4, q5, q6] in degrees
+            cartesian_delta: [dx, dy, dz, droll, dpitch, dyaw] (mm and radians)
+            damping: DLS damping factor (higher = more stable near singularities)
+
+        Returns:
+            Dict with joint angles {'Art1': ..., 'Art6': ...} or None on failure
+        """
+        try:
+            q = np.array(current_joints, dtype=np.float64)
+            dx = np.array(cartesian_delta, dtype=np.float64)
+
+            J_full = fk.compute_jacobian(*q)
+
+            # Split into position and orientation components
+            dp = dx[:3]  # position delta (mm)
+            dw = dx[3:]  # orientation delta (radians)
+
+            has_pos = np.any(np.abs(dp) > 1e-10)
+            has_ori = np.any(np.abs(dw) > 1e-10)
+
+            dq = np.zeros(6)
+
+            if has_pos and not has_ori:
+                # Position-only: use 3x6 position sub-Jacobian
+                J_pos = J_full[:3, :]
+                JJT = J_pos @ J_pos.T
+                dls = J_pos.T @ np.linalg.inv(JJT + damping**2 * np.eye(3))
+                dq = dls @ dp
+
+            elif has_ori and not has_pos:
+                # Orientation-only: use 3x6 orientation sub-Jacobian
+                J_ori = J_full[3:, :]
+                JJT = J_ori @ J_ori.T
+                dls = J_ori.T @ np.linalg.inv(JJT + (damping * 0.01)**2 * np.eye(3))
+                dq = dls @ dw
+
+            else:
+                # Mixed: scale Jacobian to balance mm and rad
+                # Scale position rows by 1/100 so both are ~same magnitude
+                J_scaled = J_full.copy()
+                J_scaled[:3, :] /= 100.0
+                dx_scaled = dx.copy()
+                dx_scaled[:3] /= 100.0
+                JJT = J_scaled @ J_scaled.T
+                dls = J_scaled.T @ np.linalg.inv(JJT + damping**2 * np.eye(6))
+                dq = dls @ dx_scaled
+
+            new_q = q + dq
+
+            logger.debug(
+                f"[JACOBIAN] dq=[{dq[0]:.3f}, {dq[1]:.3f}, {dq[2]:.3f}, "
+                f"{dq[3]:.3f}, {dq[4]:.3f}, {dq[5]:.3f}]"
+            )
+
+            return {
+                'Art1': float(new_q[0]),
+                'Art2': float(new_q[1]),
+                'Art3': float(new_q[2]),
+                'Art4': float(new_q[3]),
+                'Art5': float(new_q[4]),
+                'Art6': float(new_q[5]),
+            }
+
+        except Exception as e:
+            logger.error(f"[JACOBIAN] Failed: {e}")
+            return None
 
     def is_solution_valid(self) -> bool:
         """Check if the last IK solution was valid."""

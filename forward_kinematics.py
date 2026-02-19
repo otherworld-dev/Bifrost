@@ -459,6 +459,51 @@ def compute_tool_transform(
     return tcp_transform
 
 
+def compute_jacobian(q1: float, q2: float, q3: float,
+                     q4: float, q5: float, q6: float,
+                     delta: float = 0.001) -> np.ndarray:
+    """
+    Compute the 6x6 geometric Jacobian numerically via finite differences.
+
+    Maps joint velocities to Cartesian velocities:
+        [dx, dy, dz, wx, wy, wz] = J @ [dq1, ..., dq6]
+
+    Position rows (0-2): TCP linear velocity (mm per degree)
+    Orientation rows (3-5): TCP angular velocity (rad per degree)
+
+    Args:
+        q1-q6: Current joint angles in degrees
+        delta: Finite difference step size in degrees
+
+    Returns:
+        6x6 numpy array (Jacobian matrix)
+    """
+    from scipy.spatial.transform import Rotation
+
+    joints = np.array([q1, q2, q3, q4, q5, q6], dtype=np.float64)
+    T0 = compute_tcp_transform(*joints)
+    pos0 = T0[:3, 3]
+    R0 = T0[:3, :3]
+
+    J = np.zeros((6, 6))
+
+    for i in range(6):
+        joints_perturbed = joints.copy()
+        joints_perturbed[i] += delta
+        T1 = compute_tcp_transform(*joints_perturbed)
+
+        # Position Jacobian (mm per degree)
+        J[:3, i] = (T1[:3, 3] - pos0) / delta
+
+        # Orientation Jacobian (rad per degree)
+        # R_delta = R0^T @ R1 gives the differential rotation
+        R_delta = R0.T @ T1[:3, :3]
+        rotvec = Rotation.from_matrix(R_delta).as_rotvec()
+        J[3:, i] = rotvec / delta
+
+    return J
+
+
 def compute_workspace_envelope() -> dict:
     """
     Compute workspace envelope parameters for visualization

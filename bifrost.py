@@ -38,7 +38,8 @@ from visualization_controller import VisualizationController
 from position_history_manager import PositionHistoryManager
 from calibration_panel import load_gripper_calibration_on_startup
 from config_g_manager import read_m569_directions, DEFAULT_CONFIG_G_PATH
-from coordinate_frames import FrameManager
+from coordinate_frames import FrameManager, pose_to_xyz_rpy
+import forward_kinematics as fk
 
 import serial
 import time
@@ -312,6 +313,9 @@ class BifrostGUI(Ui_MainWindow):
         self.IKInputSpinBoxX.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
         self.IKInputSpinBoxY.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
         self.IKInputSpinBoxZ.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
+        self.IKInputSpinBoxA.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
+        self.IKInputSpinBoxB.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
+        self.IKInputSpinBoxC.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
         # IK increment/decrement buttons using generic method
         self.IkIncButtonX.pressed.connect(lambda: self.adjustIKValue('X', 10))
         self.IkDecButtonX.pressed.connect(lambda: self.adjustIKValue('X', -10))
@@ -356,6 +360,10 @@ class BifrostGUI(Ui_MainWindow):
             get_movement_params_callback=lambda: CommandBuilder.get_movement_params(self),
             no_connection_callback=self.noSerialConnection
         )
+
+        # Sync jog mode state with controllers (setChecked(True) fires before controllers exist)
+        self.ik_controller.set_jog_mode(self.jog_mode_enabled)
+        self.fk_controller.set_jog_mode(self.jog_mode_enabled)
 
         # Initialise Gripper Controller with callbacks
         self.gripper_controller = GripperController(
@@ -527,6 +535,13 @@ class BifrostGUI(Ui_MainWindow):
 
         logger.info("Generic increment/decrement controls initialised (using RobotController config)")
 
+        # Initial TCP sync: set IK spinboxes from home position FK
+        self._syncIKFromJointAngles(
+            self.SpinBoxArt1.value(), self.SpinBoxArt2.value(),
+            self.SpinBoxArt3.value(), self.SpinBoxArt4.value(),
+            self.SpinBoxArt5.value(), self.SpinBoxArt6.value()
+        )
+
     def adjustJointValue(self, joint_name, delta):
         """
         Generic method to adjust any joint value by a delta
@@ -674,14 +689,17 @@ class BifrostGUI(Ui_MainWindow):
         # Update state
         self.jog_mode_enabled = enabled
 
-        # Sync with IK controller
-        self.ik_controller.set_jog_mode(enabled)
+        # Sync with IK controller (guarded - may not exist during init)
+        if hasattr(self, 'ik_controller'):
+            self.ik_controller.set_jog_mode(enabled)
 
-        # Sync with FK controller
-        self.fk_controller.set_jog_mode(enabled)
+        # Sync with FK controller (guarded - may not exist during init)
+        if hasattr(self, 'fk_controller'):
+            self.fk_controller.set_jog_mode(enabled)
 
-        # Update visual feedback
-        self._updateJogModeVisuals(enabled)
+        # Update visual feedback (guarded - may not exist during init)
+        if hasattr(self, 'ui_state_manager'):
+            self._updateJogModeVisuals(enabled)
 
         # Log state change
         if enabled:
@@ -903,10 +921,13 @@ class BifrostGUI(Ui_MainWindow):
                     self.axis_column.rows["Y"].set_value(y)
                 if "Z" in self.axis_column.rows:
                     self.axis_column.rows["Z"].set_value(z)
-                # Roll, Pitch, Yaw default to 0 for now
-                for axis in ["Roll", "Pitch", "Yaw"]:
-                    if axis in self.axis_column.rows:
-                        self.axis_column.rows[axis].set_value(0.0)
+                # Roll, Pitch, Yaw from A/B/C spinboxes
+                orientation_map = {"Roll": "A", "Pitch": "B", "Yaw": "C"}
+                for axis_name, spinbox_letter in orientation_map.items():
+                    if axis_name in self.axis_column.rows:
+                        spinbox = getattr(self, f'IKInputSpinBox{spinbox_letter}', None)
+                        val = spinbox.value() if spinbox else 0.0
+                        self.axis_column.rows[axis_name].set_value(val)
 
     def _onCoordinateFrameChanged(self, frame_name):
         """Handle coordinate frame selection change"""
@@ -925,77 +946,156 @@ class BifrostGUI(Ui_MainWindow):
 
     def adjustCartesianValue(self, axis, delta):
         """
-        Adjust Cartesian position/orientation by delta and recalculate IK.
+        Adjust Cartesian position/orientation by delta.
+        In jog mode, uses Jacobian-based IK for reliable incremental moves.
 
         Args:
             axis: Axis name ('X', 'Y', 'Z', 'Roll', 'Pitch', 'Yaw')
-            delta: Amount to add to current value
+            delta: Amount to add to current value (mm for position, degrees for orientation)
         """
-        # Update the IK input spinboxes for position axes
-        if axis in ['X', 'Y', 'Z']:
-            spinbox = getattr(self, f'IKInputSpinBox{axis}', None)
-            if spinbox:
-                new_value = spinbox.value() + delta
-                spinbox.setValue(new_value)
+        # Map axis to Cartesian delta index: [dx, dy, dz, droll, dpitch, dyaw]
+        axis_map = {'X': 0, 'Y': 1, 'Z': 2, 'Roll': 3, 'Pitch': 4, 'Yaw': 5}
+        axis_idx = axis_map.get(axis)
 
-                # Update axis column display
-                if axis in self.axis_column.rows:
-                    self.axis_column.rows[axis].set_value(new_value)
+        if axis_idx is None:
+            logger.warning(f"Unknown Cartesian axis: {axis}")
+            return
 
-        else:
-            # Roll, Pitch, Yaw - store locally and use in IK calculation
-            # For now, log and update display (full orientation IK requires extension)
-            logger.debug(f"Cartesian {axis} adjusted by {delta}")
-            if axis in self.axis_column.rows:
-                row = self.axis_column.rows[axis]
-                # Get current value from label, parse, add delta
-                try:
-                    current_text = row.value_label.text().replace('°', '').replace('mm', '')
-                    current_val = float(current_text) if current_text else 0.0
-                except ValueError:
-                    current_val = 0.0
-                new_value = current_val + delta
-                row.set_value(new_value)
-
-        # JOG MODE: If jog mode is enabled, execute movement after IK calculation
         if self.jog_mode_enabled:
-            QtCore.QTimer.singleShot(100, self._executeIKJogMove)
-            logger.debug(f"[JOG MODE] Cartesian {axis} jogged by {delta}, executing move")
+            # Jacobian-based jog: compute joint delta directly
+            cartesian_delta = [0.0] * 6
+            if axis_idx < 3:
+                cartesian_delta[axis_idx] = delta  # mm
+            else:
+                cartesian_delta[axis_idx] = np.radians(delta)  # degrees → radians
+            self._executeJacobianJog(cartesian_delta)
+        else:
+            # Non-jog: update spinbox for display (IK recalculates via debounce timer)
+            if axis in ['X', 'Y', 'Z']:
+                spinbox = getattr(self, f'IKInputSpinBox{axis}', None)
+                if spinbox:
+                    spinbox.setValue(spinbox.value() + delta)
+            else:
+                axis_to_spinbox = {'Roll': 'A', 'Pitch': 'B', 'Yaw': 'C'}
+                spinbox_letter = axis_to_spinbox.get(axis)
+                if spinbox_letter:
+                    spinbox = getattr(self, f'IKInputSpinBox{spinbox_letter}', None)
+                    if spinbox:
+                        spinbox.setValue(spinbox.value() + delta)
 
 # Inverse Kinematics Functions
     def _calculateIKDeferred(self):
         """
         Calculate 6-DOF inverse kinematics for current target position (debounced).
-        Delegates to IKController.
+        Delegates to IKController with position and orientation.
         """
         x = self.IKInputSpinBoxX.value()
         y = self.IKInputSpinBoxY.value()
         z = self.IKInputSpinBoxZ.value()
+        a = self.IKInputSpinBoxA.value()  # Roll (degrees)
+        b = self.IKInputSpinBoxB.value()  # Pitch (degrees)
+        c = self.IKInputSpinBoxC.value()  # Yaw (degrees)
 
         # Delegate to controller - it will update GUI via callbacks
-        self.ik_controller.calculate_and_update(x, y, z)
+        self.ik_controller.calculate_and_update(x, y, z, roll_deg=a, pitch_deg=b, yaw_deg=c)
 
     def adjustIKValue(self, axis, delta):
         """
-        Generic method to adjust IK input value by a delta.
+        Adjust IK input value by a delta.
+        In jog mode, uses Jacobian-based IK for reliable incremental moves.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z')
-            delta: Amount to add to current value
+            delta: Amount to add to current value (mm)
         """
-        spinbox = getattr(self, f'IKInputSpinBox{axis}')
-        new_value = spinbox.value() + delta
-        spinbox.setValue(new_value)
-
-        # JOG MODE: If jog mode is enabled, execute movement after IK calculation
         if self.jog_mode_enabled:
-            # Wait briefly for IK calculation to complete (debounce timer), then execute
-            QtCore.QTimer.singleShot(100, self._executeIKJogMove)
-            logger.debug(f"[JOG MODE] IK {axis} jogged to {new_value}mm, executing move after IK calculation")
+            # Jacobian-based jog: compute joint delta directly
+            axis_map = {'X': 0, 'Y': 1, 'Z': 2}
+            axis_idx = axis_map.get(axis, 0)
+            cartesian_delta = [0.0] * 6
+            cartesian_delta[axis_idx] = delta  # mm
+            self._executeJacobianJog(cartesian_delta)
+        else:
+            # Non-jog: update spinbox for display (IK recalculates via debounce timer)
+            spinbox = getattr(self, f'IKInputSpinBox{axis}')
+            spinbox.setValue(spinbox.value() + delta)
 
-    def _executeIKJogMove(self):
-        """Execute movement after IK calculation in jog mode (called by timer)."""
-        self.ik_controller.execute_jog_move_if_valid()
+    def _executeJacobianJog(self, cartesian_delta):
+        """
+        Execute a Jacobian-based jog move from current joint position.
+
+        Computes joint increment via Jacobian pseudoinverse, updates FK spinboxes,
+        syncs IK display, and executes the move.
+
+        Args:
+            cartesian_delta: [dx, dy, dz, droll_rad, dpitch_rad, dyaw_rad]
+        """
+        # Get current joint angles from FK spinboxes
+        current_joints = [
+            self.SpinBoxArt1.value(), self.SpinBoxArt2.value(),
+            self.SpinBoxArt3.value(), self.SpinBoxArt4.value(),
+            self.SpinBoxArt5.value(), self.SpinBoxArt6.value()
+        ]
+
+        # Compute new joints via Jacobian
+        new_joints = self.ik_controller.calculate_jacobian_move(current_joints, cartesian_delta)
+        if new_joints is None:
+            logger.warning("[JOG MODE] Jacobian IK failed, move not executed")
+            return
+
+        # Update FK spinboxes (block signals to avoid cascading updates)
+        for spinbox, key in [
+            (self.SpinBoxArt1, 'Art1'), (self.SpinBoxArt2, 'Art2'),
+            (self.SpinBoxArt3, 'Art3'), (self.SpinBoxArt4, 'Art4'),
+            (self.SpinBoxArt5, 'Art5'), (self.SpinBoxArt6, 'Art6'),
+        ]:
+            spinbox.blockSignals(True)
+            spinbox.setValue(new_joints[key])
+            spinbox.blockSignals(False)
+
+        # Sync IK display from new joints
+        self._syncIKFromJointAngles(
+            new_joints['Art1'], new_joints['Art2'], new_joints['Art3'],
+            new_joints['Art4'], new_joints['Art5'], new_joints['Art6']
+        )
+
+        # Execute the move
+        self.FKMoveAll()
+        logger.debug(f"[JOG MODE] Jacobian jog executed, delta={cartesian_delta}")
+
+    def _syncIKFromJointAngles(self, q1, q2, q3, q4, q5, q6):
+        """
+        Compute forward kinematics and update IK spinboxes with current TCP pose.
+        Signals are blocked to prevent feedback loops (FK->IK->FK).
+
+        Args:
+            q1-q6: Joint angles in degrees
+        """
+        try:
+            # Compute full TCP transform (position + orientation)
+            tcp_transform = fk.compute_tcp_transform(q1, q2, q3, q4, q5, q6)
+            x, y, z, roll, pitch, yaw = pose_to_xyz_rpy(tcp_transform)
+
+            # Convert orientation from radians to degrees
+            roll_deg = np.degrees(roll)
+            pitch_deg = np.degrees(pitch)
+            yaw_deg = np.degrees(yaw)
+
+            # Update IK spinboxes with signals blocked (no IK recalculation)
+            for spinbox, value in [
+                (self.IKInputSpinBoxX, x),
+                (self.IKInputSpinBoxY, y),
+                (self.IKInputSpinBoxZ, z),
+                (self.IKInputSpinBoxA, roll_deg),
+                (self.IKInputSpinBoxB, pitch_deg),
+                (self.IKInputSpinBoxC, yaw_deg),
+            ]:
+                spinbox.blockSignals(True)
+                spinbox.setValue(value)
+                spinbox.blockSignals(False)
+
+        except Exception as e:
+            logger.error(f"FK->TCP sync failed: {e}")
 
 # Sequence Recorder Functions
     def setupSequenceControls(self):
@@ -1494,6 +1594,9 @@ class BifrostGUI(Ui_MainWindow):
             if "Gripper" in self.axis_column.rows:
                 self.axis_column.rows["Gripper"].set_value(self.SpinBoxGripper.value())
 
+        # Continuous TCP tracking: compute FK and update IK spinboxes
+        self._syncIKFromJointAngles(*joint_angles)
+
     def _onSimulationSequenceMove(self, q1, q2, q3, q4, q5, q6, gripper, duration):
         """Start interpolated movement to target position in simulation mode."""
         SIM_INTERP_FPS = 30
@@ -1725,13 +1828,19 @@ class BifrostGUI(Ui_MainWindow):
 
     # Callback methods for PositionDisplayController
     def _onPositionUpdate(self, positions):
-        """Callback to update GUI position labels"""
+        """Callback to update GUI position labels and sync IK spinboxes to current TCP"""
         self.FKCurrentPosValueArt1.setText(f"{positions['X']:.2f}º")
         self.FKCurrentPosValueArt2.setText(f"{positions['Y']:.2f}º")
         self.FKCurrentPosValueArt3.setText(f"{positions['Z']:.2f}º")
         self.FKCurrentPosValueArt4.setText(f"{positions['U']:.2f}º")
         self.FKCurrentPosValueArt5.setText(f"{positions['Art5']:.2f}º")
         self.FKCurrentPosValueArt6.setText(f"{positions['Art6']:.2f}º")
+
+        # Continuous TCP tracking: compute FK and update IK spinboxes
+        self._syncIKFromJointAngles(
+            positions['X'], positions['Y'], positions['Z'],
+            positions['U'], positions['Art5'], positions['Art6']
+        )
 
     def _onStateUpdate(self, state, color):
         """Callback to update robot state display"""

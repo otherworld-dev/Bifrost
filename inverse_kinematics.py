@@ -54,15 +54,19 @@ def _solve_first_3_joints(Pm_x: float, Pm_y: float, Pm_z: float) -> Tuple[float,
     # Distance from shoulder to wrist
     D = np.sqrt(r**2 + s**2)
 
-    # Reachability check
+    # Reachability check (1mm tolerance for floating point / FK round-trip)
+    REACH_TOLERANCE = 1.0
     max_reach = L2 + L3
     min_reach = abs(L2 - L3)
 
-    if D > max_reach:
+    if D > max_reach + REACH_TOLERANCE:
         return 0, 0, 0, 0, False, f"Distance {D:.2f}mm exceeds max reach {max_reach:.2f}mm"
 
-    if D < min_reach:
+    if D < max(min_reach - REACH_TOLERANCE, 0):
         return 0, 0, 0, 0, False, f"Distance {D:.2f}mm below min reach {min_reach:.2f}mm"
+
+    # Clamp D to valid range for trig calculations
+    D = np.clip(D, min_reach, max_reach)
 
     # Calculate q3 (elbow angle) using law of cosines
     cos_q3 = (D**2 - L2**2 - L3**2) / (2 * L2 * L3)

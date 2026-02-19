@@ -992,11 +992,14 @@ class JointStatusTable(QTableWidget):
             # Command value (editable spinbox)
             cmd_spin = QDoubleSpinBox()
             cmd_spin.setAlignment(Qt.AlignCenter)
-            # Set proper limits based on joint type (Art2, Art3, Art5 have 90° range)
-            if joint_name in ['Art2', 'Art3', 'Art5']:
+            # Set proper limits based on joint type (matches firmware M208)
+            if joint_name == 'Art1':
+                cmd_spin.setMinimum(-97.0)
+                cmd_spin.setMaximum(97.0)
+            elif joint_name in ['Art2', 'Art3', 'Art5']:
                 cmd_spin.setMinimum(-90.0)
                 cmd_spin.setMaximum(90.0)
-            elif row < 6:  # Other joints (Art1, Art4, Art6)
+            elif row < 6:  # Other joints (Art4, Art6)
                 cmd_spin.setMinimum(-180.0)
                 cmd_spin.setMaximum(180.0)
             else:  # Gripper
@@ -1735,7 +1738,7 @@ class Ui_MainWindow:
         # The actual display is read-only labels in the axis column
         # Pass MainWindow as parent to prevent floating windows
         self.SpinBoxArt1 = QDoubleSpinBox(MainWindow)
-        self.SpinBoxArt1.setRange(-180, 180)
+        self.SpinBoxArt1.setRange(-97, 97)
         self.SpinBoxArt1.setVisible(False)
         self.SpinBoxArt2 = QDoubleSpinBox(MainWindow)
         self.SpinBoxArt2.setRange(-90, 90)

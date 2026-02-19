@@ -1,0 +1,17 @@
+// Board Hardware configuration file for BTT Octopus Pro v1.0 F429
+// For Thor robot arm - Standalone mode
+
+board = biqoctopuspro_1.0
+
+// Diagnostic LED
+leds.diagnostic = PA_13
+
+// No heated bed or hotends needed
+heat.tempSensePins = {}
+
+// Serial aux (if needed for screen)
+serial.aux.rxTxPins = { PA_10, PA_9 }
+
+// A4988 drivers - disable smart driver features
+stepper.numSmartDrivers = 0
+stepper.TmcUartPins = { NoPin, NoPin, NoPin, NoPin, NoPin, NoPin, NoPin, NoPin }

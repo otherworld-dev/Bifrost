@@ -168,6 +168,8 @@ class SimulatedSerialManager:
                 return self._generate_m119_response()
             elif cmd_num == 42:  # M42 (GPIO/gripper control)
                 return self._handle_gripper(command_upper)
+            elif cmd_num == 280:  # M280 (servo control / gripper)
+                return self._handle_gripper(command_upper)
             elif cmd_num == 112:  # M112 (emergency stop)
                 return self._handle_emergency_stop()
             elif cmd_num == 410:  # M410 (motor freeze)

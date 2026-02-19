@@ -643,17 +643,17 @@ class CalibrationPanel(QtWidgets.QWidget):
         servo_angle = int((pwm_value / 255.0) * 180.0)
         command = f"M280 P0 S{servo_angle}"
 
-        # Send via serial if connected
-        if hasattr(self.gui_instance, 'serial_manager') and self.gui_instance.serial_manager:
-            if self.gui_instance.serial_manager.is_connected():
-                self.gui_instance.serial_manager.send_command(command)
+        # Send via command_sender if connected
+        if hasattr(self.gui_instance, 'command_sender') and self.gui_instance.command_sender:
+            sent = self.gui_instance.command_sender.send_if_connected(command)
+            if sent:
                 self.status_label.setText(f"Status: Sent gripper test PWM={pwm_value} (angle={servo_angle}°)")
                 self.status_label.setStyleSheet("background-color: #ccffcc; padding: 5px;")
             else:
                 self.status_label.setText("Status: Not connected - cannot send gripper command")
                 self.status_label.setStyleSheet("background-color: #ffcccc; padding: 5px;")
         else:
-            self.status_label.setText("Status: Serial manager not available")
+            self.status_label.setText("Status: Command sender not available")
             self.status_label.setStyleSheet("background-color: #ffcccc; padding: 5px;")
 
     def load_current_calibration(self):

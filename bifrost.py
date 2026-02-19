@@ -1832,7 +1832,7 @@ class BifrostGUI(Ui_MainWindow):
     # Callback methods for GripperController
     def _onGripperSpinboxUpdate(self, value):
         """Callback to update gripper spinbox from controller"""
-        self.SpinBoxGripper.setValue(value)
+        self.SpinBoxGripper.setValue(int(value))
 
     def _onGripperSliderUpdate(self, value):
         """Callback to update gripper slider from controller"""

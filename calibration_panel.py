@@ -360,6 +360,10 @@ class DHParametersWidget(QtWidgets.QWidget):
         # Buttons
         button_layout = QtWidgets.QHBoxLayout()
 
+        self.save_button = QtWidgets.QPushButton("Save")
+        self.save_button.clicked.connect(self.save_parameters)
+        button_layout.addWidget(self.save_button)
+
         self.load_button = QtWidgets.QPushButton("Load")
         self.load_button.clicked.connect(self.load_parameters)
         button_layout.addWidget(self.load_button)

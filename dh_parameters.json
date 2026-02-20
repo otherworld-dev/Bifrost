@@ -1,7 +1,7 @@
 {
     "version": "1.1",
     "description": "Thor Robot DH Parameters",
-    "date_modified": "2026-02-16",
+    "date_modified": "2026-02-20",
     "links": [
         {
             "link": 1,
@@ -37,7 +37,7 @@
         },
         {
             "link": 5,
-            "theta_offset": 90.0,
+            "theta_offset": 0.0,
             "d": 0.0,
             "a": 0.0,
             "alpha": 90.0,

@@ -599,7 +599,17 @@ class BifrostGUI(Ui_MainWindow):
             return
 
         joint_value = self.joint_spinboxes[joint_name].value()
-        self.fk_controller.move_joint(joint_name, joint_value)
+
+        # For differential joints, pass both joint values so the "hold" joint
+        # uses the spinbox value (desired state) instead of motor feedback
+        # which can be stale due to M114 polling race conditions.
+        other_joint_value = None
+        if joint_name == 'Art5':
+            other_joint_value = self.joint_spinboxes['Art6'].value()
+        elif joint_name == 'Art6':
+            other_joint_value = self.joint_spinboxes['Art5'].value()
+
+        self.fk_controller.move_joint(joint_name, joint_value, other_joint_value=other_joint_value)
 
     def close_application(self):
         # Properly cleanup serial connection and thread

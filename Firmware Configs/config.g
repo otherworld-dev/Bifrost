@@ -38,8 +38,8 @@ M84 S30                                                                  ; Set i
 M950 S0 C"PB_6"                                                          ; Servo on PROBE header (J40)
 
 ; Axis Limits
-M208 X-170 Y-90 Z-90 U-170 V-200 W-200 S1                                ; set axis minima
-M208 X170 Y90 Z90 U170 V200 W200 S0                                      ; set axis maxima
+M208 X-97 Y-90 Z-90 U-180 V-200 W-200 S1                                 ; set axis minima
+M208 X97 Y90 Z90 U180 V200 W200 S0                                       ; set axis maxima
 M564 S0                                                                  ; allow movement outside boundaries
 
 ; Endstops
@@ -86,4 +86,4 @@ M581 P1 T3 S1 R0                                                         ; Home 
 
 ; Custom settings are not defined
 ;M208 X194 Y90 Z90 U170 V200 W200 S0 
-M208 X-97:97 Y-90:+90 Z-90:90 U-180:180 V-90:90 W0:200 S0; set axis minima and maxima
+;M208 X-97:97 Y-90:+90 Z-90:90 U-180:180 V-200:200 W-200:200 S0; DISABLED - colon syntax conflicts with S0 flag, use separate S0/S1 above

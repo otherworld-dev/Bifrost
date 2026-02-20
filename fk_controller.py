@@ -196,13 +196,15 @@ class FKController:
         if self.slider_update_callback:
             self.slider_update_callback(joint_name, slider_value)
 
-    def move_joint(self, joint_name: str, joint_value: float) -> bool:
+    def move_joint(self, joint_name: str, joint_value: float, other_joint_value: float = None) -> bool:
         """
         Move a single joint to specified position.
 
         Args:
             joint_name: Joint name (Art1, Art2, etc.)
             joint_value: Target angle in degrees
+            other_joint_value: For differential joints, the spinbox value of the
+                              other joint (avoids M114 feedback race conditions)
 
         Returns:
             True if command sent, False otherwise
@@ -217,7 +219,7 @@ class FKController:
         if config['type'] in ('simple', 'coupled'):
             return self._move_simple(joint_name, joint_value, config)
         elif config['type'] == 'differential':
-            return self._move_differential(joint_name, joint_value, config)
+            return self._move_differential(joint_name, joint_value, config, other_joint_value)
 
         return False
 
@@ -256,7 +258,8 @@ class FKController:
         # Send command
         return self._send_command(command)
 
-    def _move_differential(self, joint_name: str, joint_value: float, config: Dict) -> bool:
+    def _move_differential(self, joint_name: str, joint_value: float, config: Dict,
+                           other_joint_value: float = None) -> bool:
         """
         Move a differential joint (Art5/Art6).
 
@@ -264,6 +267,8 @@ class FKController:
             joint_name: Joint name (Art5 or Art6)
             joint_value: Target angle in degrees
             config: Joint configuration dict
+            other_joint_value: Spinbox value of the other joint (preferred over
+                              motor feedback to avoid M114 race conditions)
 
         Returns:
             True if command sent, False otherwise
@@ -272,24 +277,32 @@ class FKController:
             logger.error("No robot controller for differential calculation")
             return False
 
-        # Check if we have valid position feedback
-        if not self.robot_controller.check_differential_initialized():
-            logger.warning(
-                "No position feedback received yet - differential control may be inaccurate!"
+        # Use spinbox values for both joints when available (avoids race
+        # conditions where M114 feedback overwrites tracked positions with
+        # stale data between rapid jog commands).
+        if other_joint_value is not None:
+            if joint_name == 'Art5':
+                target_art5 = joint_value
+                target_art6 = other_joint_value
+            else:  # Art6
+                target_art5 = other_joint_value
+                target_art6 = joint_value
+        else:
+            # Fallback: use motor feedback positions
+            if not self.robot_controller.check_differential_initialized():
+                logger.warning(
+                    "No position feedback received yet - differential control may be inaccurate!"
+                )
+            current_motor_v, current_motor_w = self.robot_controller.get_differential_motor_positions()
+            current_art5, current_art6 = diff_kin.DifferentialKinematics.motor_to_joint(
+                current_motor_v, current_motor_w
             )
-
-        # Get current joint values and set the target for the moving joint
-        current_motor_v, current_motor_w = self.robot_controller.get_differential_motor_positions()
-        current_art5, current_art6 = diff_kin.DifferentialKinematics.motor_to_joint(
-            current_motor_v, current_motor_w
-        )
-
-        if joint_name == 'Art5':
-            target_art5 = joint_value
-            target_art6 = current_art6
-        else:  # Art6
-            target_art5 = current_art5
-            target_art6 = joint_value
+            if joint_name == 'Art5':
+                target_art5 = joint_value
+                target_art6 = current_art6
+            else:  # Art6
+                target_art5 = current_art5
+                target_art6 = joint_value
 
         # Calculate new motor positions
         motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(target_art5, target_art6)

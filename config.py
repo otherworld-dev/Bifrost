@@ -27,8 +27,8 @@ POSITION_LIMITS = {
     'Y': (-90, 90),      # Art2 shoulder (coupled motors)
     'Z': (-90, 90),      # Art3 elbow
     'U': (-180, 180),    # Art4 wrist roll
-    'V': (-90, 90),      # Differential motor V (matches firmware M208)
-    'W': (0, 200),       # Differential motor W (matches firmware M208)
+    'V': (-200, 200),    # Differential motor V
+    'W': (-200, 200),    # Differential motor W
 }
 
 # Maximum position change per 100ms update (degrees)

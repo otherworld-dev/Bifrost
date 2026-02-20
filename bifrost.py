@@ -1843,18 +1843,21 @@ class BifrostGUI(Ui_MainWindow):
     # Callback methods for PositionDisplayController
     def _onPositionUpdate(self, positions):
         """Callback to update GUI position labels and sync IK spinboxes to current TCP"""
-        self.FKCurrentPosValueArt1.setText(f"{positions['X']:.2f}º")
-        self.FKCurrentPosValueArt2.setText(f"{positions['Y']:.2f}º")
-        self.FKCurrentPosValueArt3.setText(f"{positions['Z']:.2f}º")
-        self.FKCurrentPosValueArt4.setText(f"{positions['U']:.2f}º")
-        self.FKCurrentPosValueArt5.setText(f"{positions['Art5']:.2f}º")
-        self.FKCurrentPosValueArt6.setText(f"{positions['Art6']:.2f}º")
-
-        # Continuous TCP tracking: compute FK and update IK spinboxes
-        self._syncIKFromJointAngles(
+        joint_angles = [
             positions['X'], positions['Y'], positions['Z'],
             positions['U'], positions['Art5'], positions['Art6']
-        )
+        ]
+
+        # Update axis column rows (dynamically looked up to survive mode switches)
+        if hasattr(self, 'axis_column'):
+            joint_mapping = [("J1", 0), ("J2", 1), ("J3", 2),
+                             ("J4", 3), ("J5", 4), ("J6", 5)]
+            for axis_name, idx in joint_mapping:
+                if axis_name in self.axis_column.rows:
+                    self.axis_column.rows[axis_name].set_value(joint_angles[idx])
+
+        # Continuous TCP tracking: compute FK and update IK spinboxes
+        self._syncIKFromJointAngles(*joint_angles)
 
     def _onStateUpdate(self, state, color):
         """Callback to update robot state display"""
@@ -1863,30 +1866,24 @@ class BifrostGUI(Ui_MainWindow):
 
     def _onEndstopUpdate(self, axis, text, style):
         """Callback to update endstop label/indicator"""
-        # Map axis to label
-        axis_to_label = {
-            'X': self.endstopLabelArt1,
-            'Y': self.endstopLabelArt2,
-            'Z': self.endstopLabelArt3,
-            'U': self.endstopLabelArt4,
-            'V': self.endstopLabelArt5,
-            'W': self.endstopLabelArt6
+        if not hasattr(self, 'axis_column'):
+            return
+
+        # Map firmware axis letter to joint row name
+        axis_to_row = {
+            'X': 'J1', 'Y': 'J2', 'Z': 'J3',
+            'U': 'J4', 'V': 'J5', 'W': 'J6'
         }
-        if axis in axis_to_label:
-            label = axis_to_label[axis]
-            # Check if this is a new-style indicator (AxisRow uses colored dots)
-            if hasattr(self, 'axis_column'):
-                # New axis column uses indicator dots - set colour based on status
-                # Green = OK/not triggered, Red = triggered
-                is_triggered = "255, 200, 200" in style or "triggered" in text.lower()
-                if is_triggered:
-                    label.setStyleSheet("font-size: 7pt; color: #f44336;")  # Red
-                else:
-                    label.setStyleSheet("font-size: 7pt; color: #4CAF50;")  # Green
-            else:
-                # Old style - set text and full stylesheet
-                label.setText(text)
-                label.setStyleSheet(style)
+        row_name = axis_to_row.get(axis)
+        if not row_name or row_name not in self.axis_column.rows:
+            return
+
+        indicator = self.axis_column.rows[row_name].endstop_indicator
+        is_triggered = "255, 200, 200" in style or "triggered" in text.lower()
+        if is_triggered:
+            indicator.setStyleSheet("font-size: 7pt; color: #f44336;")  # Red
+        else:
+            indicator.setStyleSheet("font-size: 7pt; color: #4CAF50;")  # Green
 
     # Callback methods for SequenceController
     def _onSequencePointAdded(self, point_text):

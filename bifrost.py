@@ -1909,7 +1909,17 @@ class BifrostGUI(Ui_MainWindow):
         self.IkOutputValueZ.setText(z_text)
 
     def _onIKSpinboxUpdate(self, joint_values):
-        """Callback to update FK spinboxes from IK solution"""
+        """Callback to update FK spinboxes from IK solution.
+
+        Only updates FK spinboxes in jog mode (where the move will be executed
+        immediately). In non-jog mode, the IK result is display-only via the
+        output labels — FK spinboxes must reflect the actual robot position to
+        prevent jumps when switching to Jacobian jog.
+        """
+        if not self.jog_mode_enabled:
+            # Non-jog: don't touch FK spinboxes, IK result shown in output labels only
+            return
+
         self.SpinBoxArt1.setValue(joint_values['Art1'])
         self.SpinBoxArt2.setValue(joint_values['Art2'])
         self.SpinBoxArt3.setValue(joint_values['Art3'])

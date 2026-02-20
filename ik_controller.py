@@ -370,6 +370,12 @@ class IKController:
 
             new_q = q + dq
 
+            # Clamp to joint limits
+            from inverse_kinematics import JOINT_LIMITS
+            for i, joint_num in enumerate(range(1, 7)):
+                lo, hi = JOINT_LIMITS[joint_num]
+                new_q[i] = np.clip(new_q[i], lo, hi)
+
             logger.debug(
                 f"[JACOBIAN] dq=[{dq[0]:.3f}, {dq[1]:.3f}, {dq[2]:.3f}, "
                 f"{dq[3]:.3f}, {dq[4]:.3f}, {dq[5]:.3f}]"

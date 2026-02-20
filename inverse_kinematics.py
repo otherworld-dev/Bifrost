@@ -1,376 +1,402 @@
 """
 Inverse Kinematics module for Thor Robot Arm
-Based on kinematic decoupling procedure from Thor project documentation
+
+Analytical solver using kinematic decoupling: position (q1-q3) then orientation (q4-q6).
+Uses FK DH parameters as single source of truth for robot geometry.
+
+Wrist orientation extraction derived from the DH structure of links 4-5-6:
+    R_3_6 = [[-c4*s5*c6 - s4*s6,  c4*s5*s6 - s4*c6,  c4*c5],
+             [-s4*s5*c6 + c4*s6,  s4*s5*s6 + c4*c6,  s4*c5],
+             [-c5*c6,              c5*s6,              -s5  ]]
 """
 
 from typing import Tuple
 import numpy as np
-import numpy.typing as npt
 import logging
-from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Rotation
 
-from forward_kinematics import get_link_lengths
+from forward_kinematics import (
+    get_dh_params, compute_all_joint_transforms, compute_tcp_transform
+)
+from coordinate_frames import pose_to_xyz_rpy
 
 logger = logging.getLogger(__name__)
 
+# Joint limits in degrees (must match GUI spinbox ranges and firmware M208)
+JOINT_LIMITS = {
+    1: (-97, 97),      # Art1 base rotation
+    2: (-90, 90),       # Art2 shoulder
+    3: (-90, 90),       # Art3 elbow
+    4: (-180, 180),     # Art4 wrist roll
+    5: (-90, 90),       # Art5 wrist pitch
+    6: (-180, 180),     # Art6 wrist yaw
+}
 
-def _get_lengths():
+
+def check_joint_limits(q1, q2, q3, q4, q5, q6):
     """
-    Get link lengths from FK module (single source of truth).
+    Check all joint angles against limits.
 
     Returns:
-        Tuple (L1, L2, L3, L4) in mm
+        (all_within, error_msg) - True if all joints within limits, else error string
     """
-    lengths = get_link_lengths()
-    return lengths['L1'], lengths['L2'], lengths['L3'], lengths['L4']
-
-
-def _solve_first_3_joints(Pm_x: float, Pm_y: float, Pm_z: float) -> Tuple[float, float, float, float, bool, str]:
-    """
-    Solve for first 3 joints (q1, q2, q3) given wrist center position.
-
-    This extracts the common positioning logic used by both solve_ik_position and solve_ik_full.
-
-    Args:
-        Pm_x, Pm_y, Pm_z: Wrist center position in mm
-
-    Returns:
-        Tuple (q1, q2, q3, q3_rad, valid, error_msg)
-        - q1, q2, q3: Joint angles in degrees
-        - q3_rad: q3 in radians (needed for orientation calculations in 6-DOF)
-        - valid: True if solution found
-        - error_msg: Error description if invalid
-    """
-    L1, L2, L3, _ = _get_lengths()
-
-    # Calculate q1 (base rotation)
-    q1_rad = np.arctan2(Pm_y, Pm_x)
-    q1 = np.degrees(q1_rad)
-
-    # Calculate horizontal reach and vertical offset from base
-    r = np.sqrt(Pm_x**2 + Pm_y**2)  # Horizontal distance from base
-    s = Pm_z - L1  # Vertical offset from shoulder
-
-    # Distance from shoulder to wrist
-    D = np.sqrt(r**2 + s**2)
-
-    # Reachability check (1mm tolerance for floating point / FK round-trip)
-    REACH_TOLERANCE = 1.0
-    max_reach = L2 + L3
-    min_reach = abs(L2 - L3)
-
-    if D > max_reach + REACH_TOLERANCE:
-        return 0, 0, 0, 0, False, f"Distance {D:.2f}mm exceeds max reach {max_reach:.2f}mm"
-
-    if D < max(min_reach - REACH_TOLERANCE, 0):
-        return 0, 0, 0, 0, False, f"Distance {D:.2f}mm below min reach {min_reach:.2f}mm"
-
-    # Clamp D to valid range for trig calculations
-    D = np.clip(D, min_reach, max_reach)
-
-    # Calculate q3 (elbow angle) using law of cosines
-    cos_q3 = (D**2 - L2**2 - L3**2) / (2 * L2 * L3)
-    cos_q3 = np.clip(cos_q3, -1.0, 1.0)  # Numerical stability
-
-    # Using elbow-up solution
-    sin_q3 = np.sqrt(1 - cos_q3**2)
-    q3_rad = np.arctan2(sin_q3, cos_q3)
-    q3 = np.degrees(q3_rad)
-
-    # Calculate q2 (shoulder angle)
-    alpha = np.arctan2(s, r)  # Angle from horizontal to target
-    beta = np.arctan2(L3 * np.sin(q3_rad), L2 + L3 * np.cos(q3_rad))  # Elbow correction
-    q2 = np.degrees(alpha - beta) + 90  # DH convention adjustment
-
-    return q1, q2, q3, q3_rad, True, ""
-
-
-def rotation_matrix_x(angle_rad: float) -> npt.NDArray[np.float64]:
-    """Rotation matrix around X axis (using scipy for 60% performance improvement)"""
-    return R.from_rotvec([angle_rad, 0, 0]).as_matrix()
-
-
-def rotation_matrix_y(angle_rad: float) -> npt.NDArray[np.float64]:
-    """Rotation matrix around Y axis (using scipy for 60% performance improvement)"""
-    return R.from_rotvec([0, angle_rad, 0]).as_matrix()
-
-
-def rotation_matrix_z(angle_rad: float) -> npt.NDArray[np.float64]:
-    """Rotation matrix around Z axis (using scipy for 60% performance improvement)"""
-    return R.from_rotvec([0, 0, angle_rad]).as_matrix()
-
-
-def dh_transform(theta: float, d: float, a: float, alpha: float) -> npt.NDArray[np.float64]:
-    """
-    Calculate DH transformation matrix
-
-    Args:
-        theta: Joint angle (radians)
-        d: Link offset
-        a: Link length
-        alpha: Link twist (radians)
-
-    Returns:
-        4x4 homogeneous transformation matrix
-    """
-    ct = np.cos(theta)
-    st = np.sin(theta)
-    ca = np.cos(alpha)
-    sa = np.sin(alpha)
-
-    return np.array([
-        [ct, -st*ca,  st*sa, a*ct],
-        [st,  ct*ca, -ct*sa, a*st],
-        [0,      sa,     ca,    d],
-        [0,       0,      0,    1]
-    ])
-
-
-def euler_to_rotation_matrix(roll: float, pitch: float, yaw: float) -> npt.NDArray[np.float64]:
-    """
-    Convert Euler angles (ZYX convention) to rotation matrix
-    Uses scipy for 60% performance improvement over manual matrix multiplication
-
-    Args:
-        roll, pitch, yaw: Euler angles in radians
-
-    Returns:
-        3x3 rotation matrix
-    """
-    # scipy uses 'ZYX' extrinsic rotations (same as applying Z, then Y, then X intrinsic)
-    return R.from_euler('ZYX', [yaw, pitch, roll]).as_matrix()
+    angles = {1: q1, 2: q2, 3: q3, 4: q4, 5: q5, 6: q6}
+    for joint, angle in angles.items():
+        lo, hi = JOINT_LIMITS[joint]
+        if angle < lo - 0.01 or angle > hi + 0.01:  # small tolerance for float
+            return False, f"Joint {joint} = {angle:.1f} deg exceeds limits [{lo}, {hi}]"
+    return True, ""
 
 
 class IKSolution:
     """Container for inverse kinematics solution"""
-    def __init__(self, q1: float, q2: float, q3: float, q4: float = 0, q5: float = 0, q6: float = 0, valid: bool = True, error_msg: str = ""):
-        self.q1 = q1  # Base rotation (degrees)
-        self.q2 = q2  # Shoulder angle (degrees)
-        self.q3 = q3  # Elbow angle (degrees)
-        self.q4 = q4  # Wrist roll (degrees)
-        self.q5 = q5  # Wrist pitch (degrees)
-        self.q6 = q6  # Wrist yaw (degrees)
+    def __init__(self, q1: float = 0, q2: float = 0, q3: float = 0,
+                 q4: float = 0, q5: float = 0, q6: float = 0,
+                 valid: bool = True, error_msg: str = ""):
+        self.q1 = q1
+        self.q2 = q2
+        self.q3 = q3
+        self.q4 = q4
+        self.q5 = q5
+        self.q6 = q6
         self.valid = valid
         self.error_msg = error_msg
 
     def __str__(self) -> str:
         if self.valid:
-            return f"IK Solution: q1={self.q1:.2f}°, q2={self.q2:.2f}°, q3={self.q3:.2f}°, q4={self.q4:.2f}°, q5={self.q5:.2f}°, q6={self.q6:.2f}°"
-        else:
-            return f"IK Solution: INVALID - {self.error_msg}"
+            return (f"IK Solution: q1={self.q1:.2f}, q2={self.q2:.2f}, "
+                    f"q3={self.q3:.2f}, q4={self.q4:.2f}, "
+                    f"q5={self.q5:.2f}, q6={self.q6:.2f}")
+        return f"IK Solution: INVALID - {self.error_msg}"
 
 
-def solve_ik_position(x: float, y: float, z: float) -> IKSolution:
+def _get_geometry():
     """
-    Solve inverse kinematics for 3-DOF positioning (q1, q2, q3)
-    This positions the wrist center point (Pm), not the TCP
-
-    Args:
-        x, y, z: Target position coordinates in mm
+    Extract robot geometry from DH parameters.
 
     Returns:
-        IKSolution object containing joint angles or error information
-
-    Note:
-        - The solution positions the 5th joint axis center (Pm)
-        - Wrist orientation (q4, q5, q6) would be calculated separately in full 6-DOF IK
-        - Currently assumes wrist pointing down (default orientation)
+        (d1, a2, a3, d4, d6) - base height, upper arm, elbow offset, forearm, TCP offset
     """
-    _, _, _, L4 = _get_lengths()
-
-    logger.info(f"IK: Solving for target position X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
-
-    # Calculate wrist centre point (Pm) - assuming tool points down
-    Pm_x = x
-    Pm_y = y
-    Pm_z = z + L4  # Move up by L4 to get wrist centre
-
-    logger.debug(f"IK: Wrist centre (Pm) calculated at X={Pm_x:.2f}, Y={Pm_y:.2f}, Z={Pm_z:.2f}")
-
-    # Solve for first 3 joints using shared helper
-    q1, q2, q3, _, valid, error_msg = _solve_first_3_joints(Pm_x, Pm_y, Pm_z)
-
-    if not valid:
-        logger.error(f"IK: {error_msg}")
-        return IKSolution(0, 0, 0, valid=False, error_msg=error_msg)
-
-    logger.info(f"IK: Solution found - q1={q1:.2f}°, q2={q2:.2f}°, q3={q3:.2f}°")
-
-    return IKSolution(q1, q2, q3, valid=True)
+    params = get_dh_params()
+    if params is None or len(params) < 6:
+        return 202.0, 160.0, -6.0, 195.0, 67.15
+    return (
+        params[0]['d'],   # d1: base height (202)
+        params[1]['a'],   # a2: upper arm length (160)
+        params[2]['a'],   # a3: elbow offset (-6)
+        params[3]['d'],   # d4: forearm length (195)
+        params[5]['d'],   # d6: TCP offset (67.15)
+    )
 
 
-def solve_ik_full(x: float, y: float, z: float, roll: float = 0, pitch: float = -np.pi/2, yaw: float = 0) -> IKSolution:
+def euler_to_rotation_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
+    """Convert ZYX Euler angles (radians) to 3x3 rotation matrix."""
+    return Rotation.from_euler('ZYX', [yaw, pitch, roll]).as_matrix()
+
+
+def _solve_position_joints(p_wx: float, p_wy: float, p_wz: float,
+                           elbow_up: bool = True) -> Tuple[float, float, float, bool, str]:
     """
-    Solve full 6-DOF inverse kinematics (q1, q2, q3, q4, q5, q6)
+    Solve q1, q2, q3 from wrist center position.
+
+    Uses 2-link IK in the arm plane with effective forearm length
+    L_eff = sqrt(d4^2 + a3^2) and angular offset delta = atan2(-a3, d4)
+    to account for the a3 elbow offset.
 
     Args:
-        x, y, z: Target TCP position coordinates in mm
-        roll, pitch, yaw: Target TCP orientation in radians (default: tool pointing down)
+        p_wx, p_wy, p_wz: Wrist center position in base frame (mm)
+        elbow_up: True for elbow-up solution
 
     Returns:
-        IKSolution object containing all 6 joint angles or error information
-
-    Note:
-        - Default orientation (roll=0, pitch=-π/2, yaw=0) points tool downward
-        - Uses kinematic decoupling: position (q1-q3) then orientation (q4-q6)
+        (q1_deg, q2_deg, q3_deg, is_valid, error_msg)
     """
-    L1, L2, L3, L4 = _get_lengths()
+    d1, a2, a3, d4, _ = _get_geometry()
 
-    logger.info(f"IK 6-DOF: Solving for TCP position X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
-    logger.info(f"IK 6-DOF: Target orientation Roll={np.degrees(roll):.2f}°, Pitch={np.degrees(pitch):.2f}°, Yaw={np.degrees(yaw):.2f}°")
+    # q1: base rotation from wrist center XY projection
+    q1_deg = np.degrees(np.arctan2(p_wy, p_wx))
 
-    # Step 1: Calculate desired TCP orientation matrix
-    R_tcp = euler_to_rotation_matrix(roll, pitch, yaw)
-    logger.debug(f"IK 6-DOF: TCP rotation matrix:\n{R_tcp}")
+    # Arm plane distances
+    r = np.sqrt(p_wx**2 + p_wy**2)   # horizontal distance from base axis
+    s = p_wz - d1                     # vertical distance from shoulder
+    D_sq = r**2 + s**2
+    D = np.sqrt(D_sq)
 
-    # Step 2: Calculate wrist centre point (Pm) using orientation
-    # Pm = TCP_position - L4 * TCP_z_axis
-    tcp_z_axis = R_tcp[:, 2]  # Third column of rotation matrix
-    Pm = np.array([x, y, z]) - L4 * tcp_z_axis
+    # Effective forearm: combines d4 (along z3) and a3 (along x3)
+    L_eff = np.sqrt(d4**2 + a3**2)
+    delta = np.arctan2(-a3, d4)       # angular offset (~1.76 deg for a3=-6)
 
-    Pm_x, Pm_y, Pm_z = Pm
-    logger.debug(f"IK 6-DOF: Wrist centre (Pm) at X={Pm_x:.2f}, Y={Pm_y:.2f}, Z={Pm_z:.2f}")
+    # Reachability
+    max_reach = a2 + L_eff
+    min_reach = abs(a2 - L_eff)
+    TOLERANCE = 1.0
 
-    # Step 3: Solve for first 3 joints using shared helper
-    q1, q2, q3, q3_rad, valid, error_msg = _solve_first_3_joints(Pm_x, Pm_y, Pm_z)
+    if D > max_reach + TOLERANCE:
+        return 0, 0, 0, False, f"Distance {D:.1f}mm exceeds max reach {max_reach:.1f}mm"
+    if D < max(min_reach - TOLERANCE, 0):
+        return 0, 0, 0, False, f"Distance {D:.1f}mm below min reach {min_reach:.1f}mm"
+    D = np.clip(D, min_reach, max_reach)
+    D_sq = D**2
 
-    if not valid:
-        logger.error(f"IK 6-DOF: {error_msg}")
-        return IKSolution(0, 0, 0, 0, 0, 0, valid=False, error_msg=error_msg)
+    # q3: elbow angle via law of cosines
+    # D^2 = a2^2 + L_eff^2 + 2*a2*L_eff*cos(q3 - delta)
+    cos_elbow = (D_sq - a2**2 - L_eff**2) / (2 * a2 * L_eff)
+    cos_elbow = np.clip(cos_elbow, -1.0, 1.0)
 
-    logger.debug(f"IK 6-DOF: Position joints - q1={q1:.2f}°, q2={q2:.2f}°, q3={q3:.2f}°")
-
-    # Step 4: Calculate rotation matrix from base to wrist (R_0^3)
-    # Using DH parameters: Link 1-3
-    q1_rad = np.radians(q1)
-    q2_rad_dh = np.radians(q2 - 90)  # Convert back to DH convention
-
-    T1 = dh_transform(q1_rad, L1, 0, np.pi/2)
-    T2 = dh_transform(q2_rad_dh, 0, L2, 0)
-    T3 = dh_transform(q3_rad, 0, 0, np.pi/2)
-
-    T_0_3 = T1 @ T2 @ T3
-    R_0_3 = T_0_3[0:3, 0:3]
-
-    logger.debug(f"IK 6-DOF: R_0_3 matrix:\n{R_0_3}")
-
-    # Step 5: Calculate wrist rotation matrix (R_3^6)
-    # R_0^6 = R_0^3 * R_3^6, therefore R_3^6 = (R_0^3)^T * R_0^6
-    R_3_6 = R_0_3.T @ R_tcp
-
-    logger.debug(f"IK 6-DOF: R_3_6 matrix:\n{R_3_6}")
-
-    # Step 6: Extract wrist angles from R_3^6
-    # Based on Thor IK equations from Hackaday
-    # The equations from the PDF use a specific parameterization
-
-    # Extract elements
-    r11, r12, r13 = R_3_6[0, :]
-    r21, r22, r23 = R_3_6[1, :]
-    r31, r32, r33 = R_3_6[2, :]
-
-    # Calculate q5 (wrist pitch)
-    # q5 = arccos(r33) or arccos(specific combination)
-    # Using the general ZYZ Euler angle extraction
-    q5_rad = np.arccos(np.clip(r33, -1.0, 1.0))
-    q5 = np.degrees(q5_rad)
-
-    # Check for singularity
-    if np.abs(np.sin(q5_rad)) < 1e-6:
-        # Singularity: q4 and q6 are not uniquely defined
-        # Set q4 to 0 and solve for q6
-        logger.warning("IK 6-DOF: Wrist singularity detected")
-        q4 = 0
-        q6 = np.degrees(np.arctan2(r12, r11))
+    if elbow_up:
+        q3_rad = delta - np.arccos(cos_elbow)
     else:
+        q3_rad = delta + np.arccos(cos_elbow)
+    q3_deg = np.degrees(q3_rad)
+
+    # q2: shoulder angle
+    # theta2 = atan2(s, r) - atan2(L_eff*sin(q3-delta), a2 + L_eff*cos(q3-delta))
+    # q2 = theta2 - 90 deg  (removing theta_offset2)
+    elbow_angle = q3_rad - delta
+    beta = np.arctan2(
+        L_eff * np.sin(elbow_angle),
+        a2 + L_eff * np.cos(elbow_angle)
+    )
+    alpha = np.arctan2(s, r)
+    theta2 = alpha - beta
+    q2_deg = np.degrees(theta2) - 90.0
+
+    return q1_deg, q2_deg, q3_deg, True, ""
+
+
+def _extract_wrist_angles(R36: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Extract q4, q5, q6 from the wrist rotation matrix R_3_6.
+
+    Derived from DH links 4-5-6 (with theta_offset5=90 deg):
+        R36[2][2] = -sin(q5)
+        R36[0][2] = cos(q4)*cos(q5)
+        R36[1][2] = sin(q4)*cos(q5)
+        R36[2][0] = -cos(q5)*cos(q6)
+        R36[2][1] = cos(q5)*sin(q6)
+
+    Returns:
+        (q4_deg, q5_deg, q6_deg)
+    """
+    r02 = R36[0, 2]
+    r12 = R36[1, 2]
+    r22 = R36[2, 2]
+    r20 = R36[2, 0]
+    r21 = R36[2, 1]
+
+    # q5 from R36[2][2] = -sin(q5)
+    sin_q5 = -r22
+    cos_q5 = np.sqrt(r02**2 + r12**2)   # positive root (preferred solution)
+
+    SINGULARITY_THRESH = 1e-6
+
+    if cos_q5 > SINGULARITY_THRESH:
         # Normal case
-        q4_rad = np.arctan2(r23, r13)
-        q6_rad = np.arctan2(r32, -r31)
+        q5_deg = np.degrees(np.arctan2(sin_q5, cos_q5))
+        q4_deg = np.degrees(np.arctan2(r12, r02))
+        q6_deg = np.degrees(np.arctan2(r21, -r20))
+    else:
+        # Wrist singularity (q5 near +/-90 deg)
+        q5_deg = 90.0 if sin_q5 > 0 else -90.0
+        q6_deg = 0.0   # convention: assign all redundant freedom to q4
 
-        q4 = np.degrees(q4_rad)
-        q6 = np.degrees(q6_rad)
+        if sin_q5 > 0:
+            # q5=90: R36 degenerates, only (q4-q6) is determined
+            # R36[0][0] = -cos(q4-q6), R36[0][1] = -sin(q4-q6)
+            q4_deg = np.degrees(np.arctan2(-R36[0, 1], -R36[0, 0]))
+        else:
+            # q5=-90: only (q4+q6) is determined
+            # R36[1][0] = sin(q4+q6), R36[1][1] = cos(q4+q6)
+            q4_deg = np.degrees(np.arctan2(R36[1, 0], R36[1, 1]))
 
-    logger.debug(f"IK 6-DOF: Wrist joints - q4={q4:.2f}°, q5={q5:.2f}°, q6={q6:.2f}°")
-    logger.info(f"IK 6-DOF: Solution found - q1={q1:.2f}°, q2={q2:.2f}°, q3={q3:.2f}°, q4={q4:.2f}°, q5={q5:.2f}°, q6={q6:.2f}°")
+        logger.warning(f"IK: Wrist singularity at q5={q5_deg:.1f} deg")
+
+    return q4_deg, q5_deg, q6_deg
+
+
+def solve_ik_full(x: float, y: float, z: float,
+                  roll: float = 0, pitch: float = -np.pi/2, yaw: float = 0) -> IKSolution:
+    """
+    Solve full 6-DOF inverse kinematics using kinematic decoupling.
+
+    Args:
+        x, y, z: Target TCP position in mm
+        roll, pitch, yaw: Target TCP orientation in radians (ZYX Euler convention)
+                         Default: tool pointing down (-Z direction)
+
+    Returns:
+        IKSolution with 6 joint angles in degrees, or error
+    """
+    _, _, _, _, d6 = _get_geometry()
+
+    logger.info(f"IK 6-DOF: Target pos=({x:.1f}, {y:.1f}, {z:.1f}), "
+                f"ori=({np.degrees(roll):.1f}, {np.degrees(pitch):.1f}, "
+                f"{np.degrees(yaw):.1f}) deg")
+
+    # Step 1: Target orientation matrix
+    R_desired = euler_to_rotation_matrix(roll, pitch, yaw)
+
+    # Step 2: Wrist center = TCP - d6 * z_tcp
+    z_tcp = R_desired[:, 2]
+    p_w = np.array([x, y, z]) - d6 * z_tcp
+
+    logger.debug(f"IK 6-DOF: Wrist center at ({p_w[0]:.2f}, {p_w[1]:.2f}, {p_w[2]:.2f})")
+
+    # Step 3: Solve position joints (q1, q2, q3)
+    q1, q2, q3, valid, error = _solve_position_joints(p_w[0], p_w[1], p_w[2])
+
+    if not valid:
+        logger.error(f"IK 6-DOF: Position solve failed: {error}")
+        return IKSolution(valid=False, error_msg=error)
+
+    logger.debug(f"IK 6-DOF: Position joints q1={q1:.2f}, q2={q2:.2f}, q3={q3:.2f}")
+
+    # Step 4: Compute R_0_3 from FK (guaranteed consistent with FK chain)
+    transforms = compute_all_joint_transforms(q1, q2, q3, 0, 0, 0)
+    R03 = transforms[3][:3, :3]
+
+    # Step 5: Wrist rotation matrix
+    R36 = R03.T @ R_desired
+
+    # Step 6: Extract wrist angles from R_3_6 structure
+    q4, q5, q6 = _extract_wrist_angles(R36)
+
+    # Step 7: Validate joint limits
+    within, limit_err = check_joint_limits(q1, q2, q3, q4, q5, q6)
+    if not within:
+        logger.warning(f"IK 6-DOF: {limit_err}")
+        return IKSolution(valid=False, error_msg=limit_err)
+
+    logger.info(f"IK 6-DOF: Solution q=({q1:.2f}, {q2:.2f}, {q3:.2f}, "
+                f"{q4:.2f}, {q5:.2f}, {q6:.2f})")
 
     return IKSolution(q1, q2, q3, q4, q5, q6, valid=True)
 
 
-def verify_ik_solution(solution: IKSolution, target_x: float, target_y: float, target_z: float, tolerance: float = 1.0) -> Tuple[bool, float, Tuple[float, float, float]]:
+def solve_ik_position(x: float, y: float, z: float) -> IKSolution:
     """
-    Verify IK solution by performing forward kinematics
+    Solve 3-DOF positioning IK (q1, q2, q3).
+    Positions the wrist center at the target, assuming tool points down.
 
     Args:
-        solution: IKSolution object
-        target_x, target_y, target_z: Original target position
-        tolerance: Maximum acceptable error in mm
+        x, y, z: Target position in mm
 
     Returns:
-        tuple: (is_valid, error_distance, calculated_position)
+        IKSolution with q1, q2, q3 (q4-q6 = 0)
+    """
+    _, _, _, _, d6 = _get_geometry()
+
+    # Tool pointing down: z_tcp = [0, 0, -1]
+    # Wrist center = target - d6 * [0, 0, -1] = [x, y, z + d6]
+    q1, q2, q3, valid, error = _solve_position_joints(x, y, z + d6)
+
+    if not valid:
+        return IKSolution(valid=False, error_msg=error)
+
+    within, limit_err = check_joint_limits(q1, q2, q3, 0, 0, 0)
+    if not within:
+        return IKSolution(valid=False, error_msg=limit_err)
+
+    return IKSolution(q1, q2, q3, valid=True)
+
+
+def verify_ik_solution(solution: IKSolution,
+                       target_x: float, target_y: float, target_z: float,
+                       target_roll: float = 0, target_pitch: float = -np.pi/2,
+                       target_yaw: float = 0,
+                       pos_tolerance: float = 1.0,
+                       ori_tolerance_deg: float = 5.0) -> Tuple[bool, float, float]:
+    """
+    Verify IK solution via FK round-trip.
+
+    Args:
+        solution: IKSolution to verify
+        target_*: Original target pose
+        pos_tolerance: Max position error in mm
+        ori_tolerance_deg: Max orientation error in degrees
+
+    Returns:
+        (is_valid, pos_error_mm, ori_error_deg)
     """
     if not solution.valid:
-        return False, float('inf'), (0, 0, 0)
+        return False, float('inf'), float('inf')
 
-    # Simple forward kinematics check
-    # This would use the full FK equations in production
-    # For now, return True assuming the math is correct
+    # FK round-trip
+    T = compute_tcp_transform(solution.q1, solution.q2, solution.q3,
+                              solution.q4, solution.q5, solution.q6)
+    fk_x, fk_y, fk_z, fk_roll, fk_pitch, fk_yaw = pose_to_xyz_rpy(T)
 
-    logger.debug(f"IK: Solution verification not yet implemented")
-    return True, 0.0, (target_x, target_y, target_z)
+    # Position error
+    pos_error = np.sqrt(
+        (fk_x - target_x)**2 + (fk_y - target_y)**2 + (fk_z - target_z)**2
+    )
+
+    # Orientation error (geodesic angle between rotations)
+    R_target = euler_to_rotation_matrix(target_roll, target_pitch, target_yaw)
+    R_actual = T[:3, :3]
+    R_diff = R_target.T @ R_actual
+    angle_error = np.degrees(
+        np.arccos(np.clip((np.trace(R_diff) - 1) / 2, -1.0, 1.0))
+    )
+
+    is_valid = pos_error < pos_tolerance and angle_error < ori_tolerance_deg
+    return is_valid, pos_error, angle_error
 
 
 if __name__ == "__main__":
-    # Test cases
     logging.basicConfig(level=logging.DEBUG)
 
-    L1, L2, L3, L4 = _get_lengths()
+    d1, a2, a3, d4, d6 = _get_geometry()
+    L_eff = np.sqrt(d4**2 + a3**2)
 
-    print("Thor Robot Inverse Kinematics Test\n")
-    print(f"Robot parameters: L1={L1}mm, L2={L2}mm, L3={L3}mm, L4={L4}mm")
-    print(f"Max reach: {L2+L3}mm, Min reach: {abs(L2-L3)}mm\n")
-
-    # Test 1: Point directly in front at mid-height
-    print("Test 1: Point in front (X=300, Y=0, Z=300)")
-    sol1 = solve_ik_position(300, 0, 300)
-    print(sol1)
+    print("Thor Robot Inverse Kinematics Test")
+    print("=" * 60)
+    print(f"Geometry: d1={d1}, a2={a2}, a3={a3}, d4={d4}, d6={d6}")
+    print(f"Effective forearm: L_eff={L_eff:.3f}mm")
+    print(f"Max reach: {a2 + L_eff:.1f}mm, Min reach: {abs(a2 - L_eff):.1f}mm")
     print()
 
-    # Test 2: Point to the side
-    print("Test 2: Point to side (X=200, Y=200, Z=250)")
-    sol2 = solve_ik_position(200, 200, 250)
-    print(sol2)
-    print()
+    # Test: FK round-trip at multiple configurations
+    print("FK Round-Trip Tests")
+    print("-" * 60)
 
-    # Test 3: Unreachable point (too far)
-    print("Test 3: Unreachable point (X=500, Y=0, Z=500)")
-    sol3 = solve_ik_position(500, 0, 500)
-    print(sol3)
-    print()
+    test_configs = [
+        (0, 0, 0, 0, 0, 0, "Home position"),
+        (30, -20, 15, 10, -5, 20, "Arbitrary pose 1"),
+        (-45, 10, -30, 25, 15, -10, "Arbitrary pose 2"),
+        (0, -45, 45, 0, 0, 0, "Elbow bent, wrist straight"),
+        (90, 0, 0, 0, 0, 0, "Base rotated 90 deg"),
+        (0, 0, 0, 0, 45, 0, "Wrist pitched 45 deg"),
+        (0, 0, 0, 45, 0, 30, "Wrist roll+yaw"),
+        (0, -30, 20, 0, 30, 0, "Mid-range all"),
+        (-60, 20, -20, -30, 10, 45, "Arbitrary pose 3"),
+    ]
 
-    # Test 4: Point near minimum reach
-    print("Test 4: Near minimum reach (X=50, Y=0, Z=210)")
-    sol4 = solve_ik_position(50, 0, 210)
-    print(sol4)
-    print()
+    pass_count = 0
+    for q1, q2, q3, q4, q5, q6, name in test_configs:
+        # FK: compute TCP from joint angles
+        T = compute_tcp_transform(q1, q2, q3, q4, q5, q6)
+        x, y, z, roll, pitch, yaw = pose_to_xyz_rpy(T)
 
-    print("="*60)
-    print("6-DOF Inverse Kinematics Tests")
-    print("="*60)
-    print()
+        # IK: recover joint angles from TCP pose
+        sol = solve_ik_full(x, y, z, roll, pitch, yaw)
 
-    # Test 5: 6-DOF with default orientation (tool down)
-    print("Test 5: 6-DOF default orientation (X=250, Y=0, Z=300, tool down)")
-    sol5 = solve_ik_full(250, 0, 300)
-    print(sol5)
-    print()
+        if not sol.valid:
+            print(f"  FAIL [{name}]: IK failed - {sol.error_msg}")
+            continue
 
-    # Test 6: 6-DOF with tilted tool
-    print("Test 6: 6-DOF tilted tool (X=200, Y=50, Z=280, pitch=-45°)")
-    sol6 = solve_ik_full(200, 50, 280, roll=0, pitch=np.radians(-45), yaw=0)
-    print(sol6)
-    print()
+        # Verify via FK round-trip
+        ok, pos_err, ori_err = verify_ik_solution(
+            sol, x, y, z, roll, pitch, yaw, pos_tolerance=0.5, ori_tolerance_deg=1.0
+        )
 
-    # Test 7: 6-DOF with rotated base
-    print("Test 7: 6-DOF rotated orientation (X=150, Y=150, Z=300, yaw=30°)")
-    sol7 = solve_ik_full(150, 150, 300, roll=0, pitch=-np.pi/2, yaw=np.radians(30))
-    print(sol7)
+        status = "PASS" if ok else "FAIL"
+        if ok:
+            pass_count += 1
+        print(f"  {status} [{name}]: pos_err={pos_err:.4f}mm, ori_err={ori_err:.4f} deg")
+
+        if not ok:
+            print(f"        Input:  q=({q1}, {q2}, {q3}, {q4}, {q5}, {q6})")
+            print(f"        Output: q=({sol.q1:.2f}, {sol.q2:.2f}, {sol.q3:.2f}, "
+                  f"{sol.q4:.2f}, {sol.q5:.2f}, {sol.q6:.2f})")
+
+    print(f"\n{pass_count}/{len(test_configs)} tests passed")

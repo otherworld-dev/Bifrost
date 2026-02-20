@@ -432,6 +432,23 @@ class AxisRow(QFrame):
 
         layout.addLayout(bottom_row)
 
+        # Gripper preset buttons row (Open / Closed)
+        if is_gripper:
+            preset_row = QHBoxLayout()
+            preset_row.setSpacing(2)
+
+            self.close_btn = QPushButton("Close")
+            self.close_btn.setFixedHeight(22)
+            self.close_btn.setStyleSheet("font-size: 7pt; background: #ffcccc;")
+            preset_row.addWidget(self.close_btn)
+
+            self.open_btn = QPushButton("Open")
+            self.open_btn.setFixedHeight(22)
+            self.open_btn.setStyleSheet("font-size: 7pt; background: #ccffcc;")
+            preset_row.addWidget(self.open_btn)
+
+            layout.addLayout(preset_row)
+
         # Separator line at bottom
         self.setStyleSheet("AxisRow { border-bottom: 1px solid #ddd; }")
 

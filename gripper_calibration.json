@@ -1,4 +1,4 @@
 {
-    "pwm_open": 255,
-    "pwm_closed": 0
+    "pwm_open": 180,
+    "pwm_closed": 70
 }

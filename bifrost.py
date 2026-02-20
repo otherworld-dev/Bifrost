@@ -284,6 +284,8 @@ class BifrostGUI(Ui_MainWindow):
             gripper_row.plus_btn.pressed.connect(
                 lambda: self.adjustGripperValue(self.axis_column.get_step())
             )
+            gripper_row.open_btn.clicked.connect(lambda: self.setGripperAndMove(100))
+            gripper_row.close_btn.clicked.connect(lambda: self.setGripperAndMove(0))
 
         self.SerialPortRefreshButton.pressed.connect(self.getSerialPorts)
         self.ConnectButton.pressed.connect(self.connectSerial)
@@ -839,12 +841,24 @@ class BifrostGUI(Ui_MainWindow):
 
     def adjustGripperValue(self, delta):
         """Adjust gripper value by delta amount - used by axis column +/- buttons"""
-        self.adjustJointValue('Gripper', delta)
+        spinbox = self.joint_spinboxes.get('Gripper')
+        if not spinbox:
+            return
+        new_value = max(0, min(100, int(spinbox.value() + delta)))
+        spinbox.setValue(new_value)
+        # Update axis row display
+        if hasattr(self, 'axis_column') and "Gripper" in self.axis_column.rows:
+            self.axis_column.rows["Gripper"].set_value(new_value)
+        # Move immediately (gripper is always direct-drive, not deferred like joints)
+        self.MoveGripper()
 
     def setGripperAndMove(self, value):
         """Set gripper to specific value and execute movement - delegates to controller"""
         preset = 'closed' if value == 0 else 'open'
         self.gripper_controller.move_to_preset(preset)
+        # Update axis row display
+        if hasattr(self, 'axis_column') and "Gripper" in self.axis_column.rows:
+            self.axis_column.rows["Gripper"].set_value(value)
 
 # Axis Control Column Functions
     def _connectAxisColumnButtons(self):

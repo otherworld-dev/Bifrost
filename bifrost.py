@@ -76,6 +76,51 @@ if config.USE_SIMULATION_MODE:
 else:
     s0 = SerialManager()
 
+class WAlignmentDialog(QtWidgets.QDialog):
+    """Dialog for manually aligning J6 (wrist roll) during homing.
+
+    W has no endstop, so the user must jog J6 to the desired zero position
+    and confirm before homing finalizes.  Pure J6 rotation requires equal
+    V+W movement (differential kinematics).  The cumulative offset is
+    tracked so the caller can restore V to its homed position afterwards.
+    """
+
+    def __init__(self, command_sender, parent=None):
+        super().__init__(parent)
+        self.command_sender = command_sender
+        self.total_offset = 0
+        self.setWindowTitle("Align J6 (Wrist Roll)")
+        self.setModal(True)
+        self.setMinimumWidth(320)
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        label = QtWidgets.QLabel(
+            "J6 (wrist roll) has no endstop.\n\n"
+            "Use the buttons below to rotate J6\n"
+            "to the desired zero position, then click OK."
+        )
+        layout.addWidget(label)
+
+        jog_layout = QtWidgets.QHBoxLayout()
+        for step, text in [(-10, "-10\u00b0"), (-1, "-1\u00b0"), (1, "+1\u00b0"), (10, "+10\u00b0")]:
+            btn = QtWidgets.QPushButton(text)
+            btn.clicked.connect(lambda checked, s=step: self._jog(s))
+            jog_layout.addWidget(btn)
+        layout.addLayout(jog_layout)
+
+        ok_btn = QtWidgets.QPushButton("OK - Set as Zero")
+        ok_btn.clicked.connect(self.accept)
+        layout.addWidget(ok_btn)
+
+    def _jog(self, step):
+        # Pure J6 rotation: move V and W equally (ΔArt5=0, ΔArt6=step)
+        self.command_sender.send_if_connected("G91")
+        self.command_sender.send_if_connected(f"G1 V{step} W{step} F1800")
+        self.command_sender.send_if_connected("G90")
+        self.total_offset += step
+
+
 class HistoryLineEdit(QtWidgets.QLineEdit):
     """QLineEdit with command history navigation via up/down arrows"""
     def __init__(self, parent=None):
@@ -1888,8 +1933,28 @@ class BifrostGUI(Ui_MainWindow):
     def _onHomingComplete(self):
         """Callback when homing cycle completes"""
         self.is_homing = False
+        # Defer W alignment dialog so serial response processing finishes first
+        QTimer.singleShot(0, self._showWAlignmentDialog)
+
+    def _showWAlignmentDialog(self):
+        """Show dialog for manual J6 alignment, then finalize homing.
+
+        The dialog jogs V+W equally for pure J6 rotation.  After jogging
+        by d, motors are at V=d, W=d but physically J5=0, J6=d.
+        Re-zeroing both with G92 V0 W0 maps J5=0,J6=0 to the current
+        physical state.  V's endstop reference shifts by d (small,
+        corrected on next homing).
+        """
+        dialog = WAlignmentDialog(self.command_sender)
+        dialog.exec_()
+        # Re-zero both motors at current position (no physical movement)
+        self.command_sender.send_if_connected("G92 V0 W0")
+        # Finalize homing
         self.ui_state_manager.update_homing_state(False)
         self.robot_controller.reset_position_tracking()
+        # Request fresh position to sync displays
+        self.command_sender.send_if_connected("M114")
+        self.sync_commands_pending = True
 
     def _triggerCommandSync(self):
         """Callback to trigger command sync to actual positions"""

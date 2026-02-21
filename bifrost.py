@@ -306,8 +306,7 @@ class BifrostGUI(Ui_MainWindow):
         self.QuickG28Button.pressed.connect(lambda: self.sendQuickCommand("G28"))
         self.QuickG92Button.pressed.connect(lambda: self.sendQuickCommand("G92 X0 Y0 Z0 U0 V0 W0"))
 
-        # IK Control connections with debounce
-        # Use timer to batch rapid spinbox changes for smoother GUI
+        # IK Control connections with debounce (Cartesian spinbox changes → live IK preview)
         self.ik_calc_timer = QtCore.QTimer()
         self.ik_calc_timer.setSingleShot(True)
         self.ik_calc_timer.timeout.connect(self._calculateIKDeferred)
@@ -318,26 +317,12 @@ class BifrostGUI(Ui_MainWindow):
         self.IKInputSpinBoxA.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
         self.IKInputSpinBoxB.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
         self.IKInputSpinBoxC.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
-        # IK increment/decrement buttons using generic method
-        self.IkIncButtonX.pressed.connect(lambda: self.adjustIKValue('X', 10))
-        self.IkDecButtonX.pressed.connect(lambda: self.adjustIKValue('X', -10))
-        self.IkIncButtonY.pressed.connect(lambda: self.adjustIKValue('Y', 10))
-        self.IkDecButtonY.pressed.connect(lambda: self.adjustIKValue('Y', -10))
-        self.IkIncButtonZ.pressed.connect(lambda: self.adjustIKValue('Z', 10))
-        self.IkDecButtonZ.pressed.connect(lambda: self.adjustIKValue('Z', -10))
 
-        # Enable IK controls
-        self.InverseKinematicsLabel.setEnabled(True)
-        self.IKInputSpinBoxX.setEnabled(True)
-        self.IKInputSpinBoxY.setEnabled(True)
-        self.IKInputSpinBoxZ.setEnabled(True)
-        self.IkOutputValueFrame.setEnabled(True)
-        self.IkIncButtonX.setEnabled(True)
-        self.IkDecButtonX.setEnabled(True)
-        self.IkIncButtonY.setEnabled(True)
-        self.IkDecButtonY.setEnabled(True)
-        self.IkIncButtonZ.setEnabled(True)
-        self.IkDecButtonZ.setEnabled(True)
+        # Control panel: mode toggle, action buttons
+        self._control_mode = "cartesian"  # Default mode
+        self.control_panel.controlModeChanged.connect(self._onControlModeChanged)
+        self.GoToButton.pressed.connect(self.goToTarget)
+        self.GetCurrentButton.pressed.connect(self.getCurrentPosition)
 
         # Initialise Frame Manager for coordinate frame transformations
         self.frame_manager = FrameManager()
@@ -506,6 +491,25 @@ class BifrostGUI(Ui_MainWindow):
             self.sequenceStopButton.pressed.connect(self.stopSequence)
             self.sequenceSaveButton.pressed.connect(self.saveSequence)
             self.sequenceLoadButton.pressed.connect(self.loadSequence)
+
+            # Control panel sequence buttons (share same handlers)
+            self.ctrlRecordButton.pressed.connect(self.recordSequencePoint)
+            self.ctrlDeleteButton.pressed.connect(self._deleteSequencePointFromCtrl)
+            self.ctrlPlayButton.pressed.connect(self.playSequence)
+            self.ctrlPauseButton.pressed.connect(self.pauseSequence)
+            self.ctrlStopButton.pressed.connect(self.stopSequence)
+            self.ctrlSaveButton.pressed.connect(self.saveSequence)
+            self.ctrlLoadButton.pressed.connect(self.loadSequence)
+
+            # Sync sequence names between panels
+            self.teach_panel.SequenceNameEdit.textChanged.connect(
+                lambda t: self.ctrlSequenceNameEdit.setText(t)
+                if self.ctrlSequenceNameEdit.text() != t else None
+            )
+            self.ctrlSequenceNameEdit.textChanged.connect(
+                lambda t: self.teach_panel.SequenceNameEdit.setText(t)
+                if self.teach_panel.SequenceNameEdit.text() != t else None
+            )
 
         # Set command sender for FK controller
         self.fk_controller.command_sender = self.command_sender
@@ -1121,6 +1125,89 @@ class BifrostGUI(Ui_MainWindow):
         except Exception as e:
             logger.error(f"FK->TCP sync failed: {e}")
 
+# Control Panel Functions (Go To / Get Current / Mode Toggle)
+    def _onControlModeChanged(self, mode):
+        """Handle Cartesian/Joint toggle on the control panel."""
+        self._control_mode = mode  # "cartesian" or "joint"
+        logger.info(f"Control panel mode changed to: {mode}")
+
+    def goToTarget(self):
+        """Move robot to the position specified in the control panel target fields.
+
+        Cartesian mode: solve IK, validate, update FK spinboxes, move.
+        Joint mode: read joint targets, update FK spinboxes, move.
+        """
+        if getattr(self, '_control_mode', 'cartesian') == 'cartesian':
+            # Solve IK from Cartesian target inputs
+            x = self.IKInputSpinBoxX.value()
+            y = self.IKInputSpinBoxY.value()
+            z = self.IKInputSpinBoxZ.value()
+            a = self.IKInputSpinBoxA.value()
+            b = self.IKInputSpinBoxB.value()
+            c = self.IKInputSpinBoxC.value()
+
+            result = self.ik_controller.calculate_and_update(
+                x, y, z, roll_deg=a, pitch_deg=b, yaw_deg=c
+            )
+            if not result or not result.valid:
+                logger.warning("Go To: IK solution invalid, move not executed")
+                return
+
+            # Update FK spinboxes from IK solution (block signals to avoid cascading)
+            joint_dict = result.to_dict()
+            for spinbox, key in [
+                (self.SpinBoxArt1, 'Art1'), (self.SpinBoxArt2, 'Art2'),
+                (self.SpinBoxArt3, 'Art3'), (self.SpinBoxArt4, 'Art4'),
+                (self.SpinBoxArt5, 'Art5'), (self.SpinBoxArt6, 'Art6'),
+            ]:
+                spinbox.blockSignals(True)
+                spinbox.setValue(joint_dict[key])
+                spinbox.blockSignals(False)
+        else:
+            # Joint mode: read target spinboxes directly
+            targets = [
+                (self.SpinBoxArt1, self.JointTargetSpinBox1),
+                (self.SpinBoxArt2, self.JointTargetSpinBox2),
+                (self.SpinBoxArt3, self.JointTargetSpinBox3),
+                (self.SpinBoxArt4, self.JointTargetSpinBox4),
+                (self.SpinBoxArt5, self.JointTargetSpinBox5),
+                (self.SpinBoxArt6, self.JointTargetSpinBox6),
+            ]
+            for fk_spinbox, target_spinbox in targets:
+                fk_spinbox.blockSignals(True)
+                fk_spinbox.setValue(target_spinbox.value())
+                fk_spinbox.blockSignals(False)
+
+        # Execute the move
+        self.FKMoveAll()
+
+    def getCurrentPosition(self):
+        """Read current robot position into the control panel target fields."""
+        if getattr(self, '_control_mode', 'cartesian') == 'cartesian':
+            # Compute FK to get TCP pose, populate Cartesian spinboxes
+            self._syncIKFromJointAngles(
+                self.SpinBoxArt1.value(), self.SpinBoxArt2.value(),
+                self.SpinBoxArt3.value(), self.SpinBoxArt4.value(),
+                self.SpinBoxArt5.value(), self.SpinBoxArt6.value()
+            )
+        else:
+            # Copy current FK spinbox values to joint target spinboxes
+            targets = [
+                (self.JointTargetSpinBox1, self.SpinBoxArt1),
+                (self.JointTargetSpinBox2, self.SpinBoxArt2),
+                (self.JointTargetSpinBox3, self.SpinBoxArt3),
+                (self.JointTargetSpinBox4, self.SpinBoxArt4),
+                (self.JointTargetSpinBox5, self.SpinBoxArt5),
+                (self.JointTargetSpinBox6, self.SpinBoxArt6),
+            ]
+            for target_spinbox, fk_spinbox in targets:
+                target_spinbox.blockSignals(True)
+                target_spinbox.setValue(fk_spinbox.value())
+                target_spinbox.blockSignals(False)
+
+        # Also sync gripper value on the control panel
+        self.ctrlGripperSpinBox.setValue(self.SpinBoxGripper.value())
+
 # Sequence Recorder Functions
     def setupSequenceControls(self):
         """Create sequence recorder GUI controls programmatically"""
@@ -1397,7 +1484,12 @@ class BifrostGUI(Ui_MainWindow):
             q6=self.SpinBoxArt6.value(),
             gripper=self.SpinBoxGripper.value()
         )
-        delay = self.sequenceDelaySpinBox.value()
+
+        # Read delay from the active panel's delay spinbox
+        if hasattr(self, 'mode_stack') and self.mode_stack.currentIndex() == 0:
+            delay = self.ctrlDelaySpinBox.value()
+        else:
+            delay = self.sequenceDelaySpinBox.value()
 
         # Update movement params from GUI before recording
         movement_type, feedrate = CommandBuilder.get_movement_params(self)
@@ -1406,8 +1498,13 @@ class BifrostGUI(Ui_MainWindow):
         self.sequence_controller.record_point(positions, delay)
 
     def deleteSequencePoint(self):
-        """Delete selected point from sequence. Delegates to SequenceController."""
+        """Delete selected point from teach panel sequence list."""
         current_row = self.sequencePointsList.currentRow()
+        self.sequence_controller.delete_point(current_row)
+
+    def _deleteSequencePointFromCtrl(self):
+        """Delete selected point from control panel sequence list."""
+        current_row = self.ctrlSequencePointsList.currentRow()
         self.sequence_controller.delete_point(current_row)
 
     def clearSequence(self):
@@ -1420,9 +1517,13 @@ class BifrostGUI(Ui_MainWindow):
         movement_type, feedrate = CommandBuilder.get_movement_params(self)
         self.sequence_controller.set_movement_params(movement_type, feedrate)
 
-        # Get playback parameters from GUI
-        speed = self.sequenceSpeedSpinBox.value()
-        loop = self.sequenceLoopCheckBox.isChecked()
+        # Get playback parameters from the active panel
+        if hasattr(self, 'mode_stack') and self.mode_stack.currentIndex() == 0:
+            speed = self.ctrlSpeedSpinBox.value()
+            loop = self.ctrlLoopCheckBox.isChecked()
+        else:
+            speed = self.sequenceSpeedSpinBox.value()
+            loop = self.sequenceLoopCheckBox.isChecked()
 
         if self.sequence_controller.start_playback(speed=speed, loop=loop):
             self.is_playing_sequence = True
@@ -1895,32 +1996,43 @@ class BifrostGUI(Ui_MainWindow):
         else:
             indicator.setStyleSheet("font-size: 7pt; color: #4CAF50;")  # Green
 
-    # Callback methods for SequenceController
+    # Callback methods for SequenceController (dual-panel: teach + control)
     def _onSequencePointAdded(self, point_text):
-        """Callback when a point is added to the sequence"""
+        """Callback when a point is added to the sequence - updates both panels"""
         self.sequencePointsList.addItem(point_text)
+        self.ctrlSequencePointsList.addItem(point_text)
 
     def _onSequenceCleared(self):
-        """Callback when sequence is cleared"""
+        """Callback when sequence is cleared - updates both panels"""
         self.sequencePointsList.clear()
+        self.ctrlSequencePointsList.clear()
 
     def _onSequencePointRemoved(self, index):
-        """Callback when a point is removed from sequence"""
+        """Callback when a point is removed from sequence - updates both panels"""
         self.sequencePointsList.takeItem(index)
+        self.ctrlSequencePointsList.takeItem(index)
 
     def _onSequenceButtonStateChanged(self, button_name, enabled):
-        """Callback to update sequence button states"""
-        button_map = {
+        """Callback to update sequence button states on both panels"""
+        teach_map = {
             'play': self.sequencePlayButton,
             'pause': self.sequencePauseButton,
             'stop': self.sequenceStopButton
         }
-        if button_name in button_map:
-            button_map[button_name].setEnabled(enabled)
+        ctrl_map = {
+            'play': self.ctrlPlayButton,
+            'pause': self.ctrlPauseButton,
+            'stop': self.ctrlStopButton
+        }
+        if button_name in teach_map:
+            teach_map[button_name].setEnabled(enabled)
+        if button_name in ctrl_map:
+            ctrl_map[button_name].setEnabled(enabled)
 
     def _onSequencePauseTextChanged(self, text):
-        """Callback to update pause button text"""
+        """Callback to update pause button text on both panels"""
         self.sequencePauseButton.setText(text)
+        self.ctrlPauseButton.setText(text)
 
     # Callback methods for IKController
     def _onIKOutputUpdate(self, x_text, y_text, z_text):

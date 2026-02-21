@@ -4,11 +4,11 @@ Bifrost Modern UI - Mode-Based Interface
 Industry-standard robot control interface with mode switching
 
 Modes:
-- JOG: Manual joint control
-- INVERSE: Inverse kinematics (Cartesian control)
-- TEACH: Sequence programming
+- CONTROL: Unified IK/FK target control with sequence recording
+- TEACH: Dedicated sequence programming
 - TERMINAL: Console and debugging
-- 3D VIEW: Full-screen visualization
+- CALIBRATE: DH parameters and calibration
+- FRAMES: Coordinate frame management
 """
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -117,9 +117,9 @@ class ModernMainWindow(QMainWindow):
 
     def setup_mode_panels(self):
         """Create all mode-specific panels (JOG removed - controls in sidebar)"""
-        # Mode 0: INVERSE
-        self.inverse_panel = InverseModePanel()
-        self.mode_stack.addWidget(self.inverse_panel)
+        # Mode 0: CONTROL (unified IK/FK + sequence recording)
+        self.control_panel = ControlModePanel()
+        self.mode_stack.addWidget(self.control_panel)
 
         # Mode 1: TEACH
         self.teach_panel = TeachModePanel()
@@ -276,7 +276,7 @@ class ModeSelectorBar(QFrame):
         # Mode buttons (JOG removed - axis controls now in sidebar)
         self.mode_group = QButtonGroup()
 
-        self.btn_inverse = QPushButton("🎯 INVERSE")
+        self.btn_inverse = QPushButton("🎮 CONTROL")
         self.btn_inverse.setCheckable(True)
         self.btn_inverse.setMinimumHeight(35)
         self.btn_inverse.setMinimumWidth(130)
@@ -1161,178 +1161,387 @@ class JogModePanel(QFrame):
         layout.addWidget(quick_group)
 
 
-class InverseModePanel(QFrame):
-    """MODE: INVERSE - Inverse kinematics control"""
+class ControlModePanel(QFrame):
+    """MODE: CONTROL - Unified IK/FK target input with sequence recording"""
+
+    # Signal emitted when Cartesian/Joint toggle changes
+    controlModeChanged = pyqtSignal(str)  # "cartesian" or "joint"
+
+    # Stylesheet constants
+    _TOGGLE_STYLE = """
+        QPushButton {
+            border: 1px solid #aaa; background: #f0f0f0;
+            padding: 6px; font-size: 10pt;
+        }
+        QPushButton:checked {
+            background: #4a86c8; color: white; font-weight: bold;
+            border: 1px solid #3a6aa0;
+        }
+        QPushButton:hover:!checked { background: #e0e8f0; }
+    """
+    _GOTO_STYLE = """
+        QPushButton {
+            background: #4a86c8; color: white; font-weight: bold;
+            font-size: 10pt; border: 1px solid #3a6aa0; border-radius: 3px;
+            padding: 6px;
+        }
+        QPushButton:hover { background: #5a96d8; }
+        QPushButton:pressed { background: #3a6aa0; }
+    """
+    _GETCUR_STYLE = """
+        QPushButton {
+            background: #f5f5f5; font-size: 10pt;
+            border: 1px solid #aaa; border-radius: 3px; padding: 6px;
+        }
+        QPushButton:hover { background: #e8e8e8; }
+        QPushButton:pressed { background: #ddd; }
+    """
+    _RECORD_STYLE = """
+        QPushButton {
+            background: #d9534f; color: white; font-weight: bold;
+            font-size: 9pt; border: 1px solid #c9302c; border-radius: 3px;
+            padding: 5px;
+        }
+        QPushButton:hover { background: #e9635f; }
+        QPushButton:pressed { background: #c9302c; }
+    """
+    _SPINBOX_STYLE = "QDoubleSpinBox { padding: 3px; font-size: 10pt; }"
 
     def __init__(self):
         super().__init__()
         self.setFrameShape(QFrame.StyledPanel)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
-        # Title
-        title = QLabel("Cartesian Target Position")
-        title_font = QtGui.QFont()
-        title_font.setPointSize(10)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        layout.addWidget(title)
+        # --- Mode toggle: Cartesian / Joint (segmented control) ---
+        mode_layout = QHBoxLayout()
+        mode_layout.setSpacing(0)
+        self.cartesian_mode_btn = QPushButton("Cartesian")
+        self.cartesian_mode_btn.setCheckable(True)
+        self.cartesian_mode_btn.setChecked(True)
+        self.cartesian_mode_btn.setMinimumHeight(34)
+        self.cartesian_mode_btn.setStyleSheet(
+            self._TOGGLE_STYLE + "QPushButton { border-radius: 3px 0 0 3px; }")
+        self.joint_mode_btn = QPushButton("Joint")
+        self.joint_mode_btn.setCheckable(True)
+        self.joint_mode_btn.setMinimumHeight(34)
+        self.joint_mode_btn.setStyleSheet(
+            self._TOGGLE_STYLE + "QPushButton { border-radius: 0 3px 3px 0; border-left: none; }")
+        self._mode_group = QButtonGroup()
+        self._mode_group.addButton(self.cartesian_mode_btn, 0)
+        self._mode_group.addButton(self.joint_mode_btn, 1)
+        self._mode_group.buttonClicked.connect(self._on_mode_toggled)
+        mode_layout.addWidget(self.cartesian_mode_btn)
+        mode_layout.addWidget(self.joint_mode_btn)
+        layout.addLayout(mode_layout)
 
-        # Visual directional pad
-        pad_frame = QFrame()
-        pad_frame.setFrameShape(QFrame.Box)
-        pad_frame.setMinimumHeight(200)
-        pad_layout = QGridLayout(pad_frame)
+        # --- Target inputs (stacked: Cartesian page / Joint page) ---
+        self.target_stack = QStackedWidget()
 
-        # Y+ button
-        self.IkIncButtonY = QPushButton("Y+")
-        self.IkIncButtonY.setMinimumSize(60, 60)
-        pad_layout.addWidget(self.IkIncButtonY, 0, 1)
+        # Page 0: Cartesian inputs — Position (X/Y/Z) + Orientation (A/B/C)
+        cartesian_page = QWidget()
+        cart_outer = QVBoxLayout(cartesian_page)
+        cart_outer.setContentsMargins(0, 4, 0, 0)
+        cart_outer.setSpacing(6)
 
-        # X- button
-        self.IkDecButtonX = QPushButton("X-")
-        self.IkDecButtonX.setMinimumSize(60, 60)
-        pad_layout.addWidget(self.IkDecButtonX, 1, 0)
-
-        # Centre label
-        center_label = QLabel("[XYZ]")
-        center_label.setAlignment(Qt.AlignCenter)
-        center_label.setStyleSheet("border: 2px solid #999; border-radius: 5px; font-weight: bold;")
-        center_label.setMinimumSize(60, 60)
-        pad_layout.addWidget(center_label, 1, 1)
-
-        # X+ button
-        self.IkIncButtonX = QPushButton("X+")
-        self.IkIncButtonX.setMinimumSize(60, 60)
-        pad_layout.addWidget(self.IkIncButtonX, 1, 2)
-
-        # Y- button
-        self.IkDecButtonY = QPushButton("Y-")
-        self.IkDecButtonY.setMinimumSize(60, 60)
-        pad_layout.addWidget(self.IkDecButtonY, 2, 1)
-
-        layout.addWidget(pad_frame)
-
-        # Z axis controls
-        z_group = QGroupBox("Z Axis")
-        z_layout = QVBoxLayout(z_group)
-
-        z_btn_layout = QHBoxLayout()
-        self.IkIncButtonZ = QPushButton("▲ Z+")
-        self.IkIncButtonZ.setMinimumHeight(40)
-        z_btn_layout.addWidget(self.IkIncButtonZ)
-
-        self.IkDecButtonZ = QPushButton("▼ Z-")
-        self.IkDecButtonZ.setMinimumHeight(40)
-        z_btn_layout.addWidget(self.IkDecButtonZ)
-
-        z_layout.addLayout(z_btn_layout)
-        layout.addWidget(z_group)
-
-        # Position inputs
-        pos_group = QGroupBox("Target Position")
+        # Position sub-group
+        pos_group = QGroupBox("Position")
+        pos_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         pos_layout = QGridLayout(pos_group)
+        pos_layout.setVerticalSpacing(4)
+        pos_layout.setHorizontalSpacing(6)
+        pos_layout.setColumnStretch(0, 0)  # label: fixed
+        pos_layout.setColumnStretch(1, 1)  # spinbox: stretch
 
-        # X
-        pos_layout.addWidget(QLabel("X:"), 0, 0)
-        self.IKInputSpinBoxX = QDoubleSpinBox()
-        self.IKInputSpinBoxX.setRange(-999, 999)
-        self.IKInputSpinBoxX.setDecimals(2)
-        self.IKInputSpinBoxX.setSuffix(" mm")
-        pos_layout.addWidget(self.IKInputSpinBoxX, 0, 1)
+        self.IKInputSpinBoxX = self._make_spinbox(" mm", -999, 999)
+        self.IKInputSpinBoxY = self._make_spinbox(" mm", -999, 999)
+        self.IKInputSpinBoxZ = self._make_spinbox(" mm", -999, 999)
 
-        # Y
-        pos_layout.addWidget(QLabel("Y:"), 1, 0)
-        self.IKInputSpinBoxY = QDoubleSpinBox()
-        self.IKInputSpinBoxY.setRange(-999, 999)
-        self.IKInputSpinBoxY.setDecimals(2)
-        self.IKInputSpinBoxY.setSuffix(" mm")
-        pos_layout.addWidget(self.IKInputSpinBoxY, 1, 1)
+        axis_colors = {"X": "#e04040", "Y": "#40a040", "Z": "#4070d0"}
+        for row, (axis, spinbox) in enumerate([
+            ("X", self.IKInputSpinBoxX), ("Y", self.IKInputSpinBoxY),
+            ("Z", self.IKInputSpinBoxZ)]):
+            lbl = QLabel(axis)
+            lbl.setStyleSheet(
+                f"font-weight: bold; font-size: 11pt; color: {axis_colors[axis]};")
+            lbl.setFixedWidth(24)
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            spinbox.setStyleSheet(self._SPINBOX_STYLE)
+            pos_layout.addWidget(lbl, row, 0)
+            pos_layout.addWidget(spinbox, row, 1)
 
-        # Z
-        pos_layout.addWidget(QLabel("Z:"), 2, 0)
-        self.IKInputSpinBoxZ = QDoubleSpinBox()
-        self.IKInputSpinBoxZ.setRange(-999, 999)
-        self.IKInputSpinBoxZ.setDecimals(2)
-        self.IKInputSpinBoxZ.setSuffix(" mm")
-        pos_layout.addWidget(self.IKInputSpinBoxZ, 2, 1)
+        cart_outer.addWidget(pos_group)
 
-        # A (orientation)
-        pos_layout.addWidget(QLabel("A:"), 3, 0)
-        self.IKInputSpinBoxA = QDoubleSpinBox()
-        self.IKInputSpinBoxA.setRange(-180, 180)
-        self.IKInputSpinBoxA.setDecimals(2)
-        self.IKInputSpinBoxA.setSuffix(" °")
-        pos_layout.addWidget(self.IKInputSpinBoxA, 3, 1)
+        # Orientation sub-group
+        ori_group = QGroupBox("Orientation")
+        ori_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        ori_layout = QGridLayout(ori_group)
+        ori_layout.setVerticalSpacing(4)
+        ori_layout.setHorizontalSpacing(6)
+        ori_layout.setColumnStretch(0, 0)  # label: fixed
+        ori_layout.setColumnStretch(1, 1)  # spinbox: stretch
+        ori_layout.setColumnStretch(2, 0)  # hint: fixed
 
-        # B (orientation)
-        pos_layout.addWidget(QLabel("B:"), 4, 0)
-        self.IKInputSpinBoxB = QDoubleSpinBox()
-        self.IKInputSpinBoxB.setRange(-180, 180)
-        self.IKInputSpinBoxB.setDecimals(2)
-        self.IKInputSpinBoxB.setSuffix(" °")
-        pos_layout.addWidget(self.IKInputSpinBoxB, 4, 1)
+        self.IKInputSpinBoxA = self._make_spinbox(" \u00b0", -180, 180)
+        self.IKInputSpinBoxB = self._make_spinbox(" \u00b0", -180, 180)
+        self.IKInputSpinBoxC = self._make_spinbox(" \u00b0", -180, 180)
 
-        # C (orientation)
-        pos_layout.addWidget(QLabel("C:"), 5, 0)
-        self.IKInputSpinBoxC = QDoubleSpinBox()
-        self.IKInputSpinBoxC.setRange(-180, 180)
-        self.IKInputSpinBoxC.setDecimals(2)
-        self.IKInputSpinBoxC.setSuffix(" °")
-        pos_layout.addWidget(self.IKInputSpinBoxC, 5, 1)
+        ori_labels = {"A": "Roll", "B": "Pitch", "C": "Yaw"}
+        for row, (axis, spinbox) in enumerate([
+            ("A", self.IKInputSpinBoxA), ("B", self.IKInputSpinBoxB),
+            ("C", self.IKInputSpinBoxC)]):
+            lbl = QLabel(axis)
+            lbl.setStyleSheet(
+                "font-weight: bold; font-size: 11pt; color: #666;")
+            lbl.setFixedWidth(24)
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            hint = QLabel(ori_labels[axis])
+            hint.setStyleSheet("color: #999; font-size: 8pt;")
+            spinbox.setStyleSheet(self._SPINBOX_STYLE)
+            ori_layout.addWidget(lbl, row, 0)
+            ori_layout.addWidget(spinbox, row, 1)
+            ori_layout.addWidget(hint, row, 2)
 
-        layout.addWidget(pos_group)
+        cart_outer.addWidget(ori_group)
+        self.target_stack.addWidget(cartesian_page)
 
-        # Calculate button
-        self.CalculateIKButton = QPushButton("Calculate IK Solution")
-        self.CalculateIKButton.setMinimumHeight(35)
-        layout.addWidget(self.CalculateIKButton)
+        # Page 1: Joint inputs (J1-J6 degrees) — 3x2 grid
+        joint_page = QWidget()
+        joint_outer = QVBoxLayout(joint_page)
+        joint_outer.setContentsMargins(0, 4, 0, 0)
 
-        # IK solution display
+        joint_group = QGroupBox("Joint Targets")
+        joint_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        joint_grid = QGridLayout(joint_group)
+        joint_grid.setVerticalSpacing(4)
+        joint_grid.setHorizontalSpacing(8)
+
+        joint_limits = [(-97, 97), (-90, 90), (-90, 90),
+                        (-180, 180), (-90, 90), (-180, 180)]
+        self.JointTargetSpinBox1 = self._make_spinbox(" \u00b0", *joint_limits[0])
+        self.JointTargetSpinBox2 = self._make_spinbox(" \u00b0", *joint_limits[1])
+        self.JointTargetSpinBox3 = self._make_spinbox(" \u00b0", *joint_limits[2])
+        self.JointTargetSpinBox4 = self._make_spinbox(" \u00b0", *joint_limits[3])
+        self.JointTargetSpinBox5 = self._make_spinbox(" \u00b0", *joint_limits[4])
+        self.JointTargetSpinBox6 = self._make_spinbox(" \u00b0", *joint_limits[5])
+
+        joint_names = ["Base", "Shoulder", "Elbow", "Wrist 1", "Wrist 2", "Wrist 3"]
+        spinboxes = [self.JointTargetSpinBox1, self.JointTargetSpinBox2,
+                     self.JointTargetSpinBox3, self.JointTargetSpinBox4,
+                     self.JointTargetSpinBox5, self.JointTargetSpinBox6]
+
+        for i, (name, spinbox) in enumerate(zip(joint_names, spinboxes)):
+            row, col_base = divmod(i, 2)
+            col_offset = col_base * 3
+
+            lbl = QLabel(f"J{i+1}")
+            lbl.setStyleSheet(
+                "font-weight: bold; font-size: 11pt; color: #4a86c8; min-width: 22px;")
+            lbl.setAlignment(Qt.AlignCenter)
+            hint = QLabel(name)
+            hint.setStyleSheet("color: #999; font-size: 7pt;")
+            spinbox.setStyleSheet(self._SPINBOX_STYLE)
+
+            joint_grid.addWidget(lbl, row, col_offset)
+            joint_grid.addWidget(spinbox, row, col_offset + 1)
+            joint_grid.addWidget(hint, row, col_offset + 2)
+
+        joint_outer.addWidget(joint_group)
+        joint_outer.addStretch()
+        self.target_stack.addWidget(joint_page)
+
+        layout.addWidget(self.target_stack)
+
+        # --- Action buttons: Get Current / Go To ---
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(8)
+        self.GetCurrentButton = QPushButton("Get Current")
+        self.GetCurrentButton.setMinimumHeight(36)
+        self.GetCurrentButton.setStyleSheet(self._GETCUR_STYLE)
+        action_layout.addWidget(self.GetCurrentButton)
+
+        self.GoToButton = QPushButton("Go To Position")
+        self.GoToButton.setMinimumHeight(36)
+        self.GoToButton.setStyleSheet(self._GOTO_STYLE)
+        action_layout.addWidget(self.GoToButton, 1)  # stretch=1, takes more space
+        layout.addLayout(action_layout)
+
+        # --- IK Solution display (Cartesian mode only) ---
+        self.ik_solution_group = QGroupBox("IK Solution")
+        self.ik_solution_group.setStyleSheet(
+            "QGroupBox { font-size: 8pt; color: #666; }")
+        sol_outer = QVBoxLayout(self.ik_solution_group)
+        sol_outer.setContentsMargins(4, 2, 4, 2)
+
         self.IkOutputValueFrame = QFrame()
         self.IkOutputValueFrame.setFrameShape(QFrame.Box)
-        self.IkOutputValueFrame.setStyleSheet("background-color: rgb(255, 255, 255);")
+        self.IkOutputValueFrame.setStyleSheet(
+            "background-color: rgb(255, 255, 255); border: 1px solid #ccc; border-radius: 2px;")
         sol_layout = QVBoxLayout(self.IkOutputValueFrame)
+        sol_layout.setContentsMargins(4, 2, 4, 2)
 
-        # Individual joint output labels (required by bifrost.py)
         output_grid = QGridLayout()
-        output_grid.addWidget(QLabel("X:"), 0, 0)
+        output_grid.setHorizontalSpacing(4)
         self.IkOutputValueX = QLabel("--")
         self.IkOutputValueX.setAlignment(Qt.AlignCenter)
-        output_grid.addWidget(self.IkOutputValueX, 0, 1)
-
-        output_grid.addWidget(QLabel("Y:"), 0, 2)
         self.IkOutputValueY = QLabel("--")
         self.IkOutputValueY.setAlignment(Qt.AlignCenter)
-        output_grid.addWidget(self.IkOutputValueY, 0, 3)
-
-        output_grid.addWidget(QLabel("Z:"), 0, 4)
         self.IkOutputValueZ = QLabel("--")
         self.IkOutputValueZ.setAlignment(Qt.AlignCenter)
-        output_grid.addWidget(self.IkOutputValueZ, 0, 5)
-
-        # Orientation output labels (A, B, C)
-        output_grid.addWidget(QLabel("A:"), 1, 0)
         self.IkOutputValueA = QLabel("--")
         self.IkOutputValueA.setAlignment(Qt.AlignCenter)
-        output_grid.addWidget(self.IkOutputValueA, 1, 1)
-
-        output_grid.addWidget(QLabel("B:"), 1, 2)
         self.IkOutputValueB = QLabel("--")
         self.IkOutputValueB.setAlignment(Qt.AlignCenter)
-        output_grid.addWidget(self.IkOutputValueB, 1, 3)
-
-        output_grid.addWidget(QLabel("C:"), 1, 4)
         self.IkOutputValueC = QLabel("--")
         self.IkOutputValueC.setAlignment(Qt.AlignCenter)
-        output_grid.addWidget(self.IkOutputValueC, 1, 5)
+
+        ik_out_style = "font-family: monospace; font-size: 9pt;"
+        ik_lbl_style = "font-weight: bold; font-size: 8pt; color: #4a86c8;"
+        for widget in [self.IkOutputValueX, self.IkOutputValueY, self.IkOutputValueZ,
+                       self.IkOutputValueA, self.IkOutputValueB, self.IkOutputValueC]:
+            widget.setStyleSheet(ik_out_style)
+
+        for col, (lbl_text, widget) in enumerate([
+            ("J1", self.IkOutputValueX), ("J2", self.IkOutputValueY),
+            ("J3", self.IkOutputValueZ)]):
+            lbl = QLabel(lbl_text)
+            lbl.setStyleSheet(ik_lbl_style)
+            output_grid.addWidget(lbl, 0, col * 2)
+            output_grid.addWidget(widget, 0, col * 2 + 1)
+        for col, (lbl_text, widget) in enumerate([
+            ("J4", self.IkOutputValueA), ("J5", self.IkOutputValueB),
+            ("J6", self.IkOutputValueC)]):
+            lbl = QLabel(lbl_text)
+            lbl.setStyleSheet(ik_lbl_style)
+            output_grid.addWidget(lbl, 1, col * 2)
+            output_grid.addWidget(widget, 1, col * 2 + 1)
 
         sol_layout.addLayout(output_grid)
+        sol_outer.addWidget(self.IkOutputValueFrame)
+        layout.addWidget(self.ik_solution_group)
 
-        layout.addWidget(self.IkOutputValueFrame)
+        # --- Sequence recording section ---
+        seq_group = QGroupBox("Sequence")
+        seq_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        seq_layout = QVBoxLayout(seq_group)
+        seq_layout.setContentsMargins(6, 6, 6, 6)
+        seq_layout.setSpacing(4)
 
-        layout.addStretch()
+        # Sequence name
+        name_row = QHBoxLayout()
+        name_lbl = QLabel("Name:")
+        name_lbl.setStyleSheet("font-weight: normal;")
+        name_row.addWidget(name_lbl)
+        self.ctrlSequenceNameEdit = QLineEdit("Untitled_Sequence")
+        self.ctrlSequenceNameEdit.setStyleSheet("padding: 2px; font-size: 9pt;")
+        name_row.addWidget(self.ctrlSequenceNameEdit)
+        seq_layout.addLayout(name_row)
+
+        # Point list (compact)
+        self.ctrlSequencePointsList = QListWidget()
+        self.ctrlSequencePointsList.setMinimumHeight(80)
+        self.ctrlSequencePointsList.setMaximumHeight(160)
+        self.ctrlSequencePointsList.setStyleSheet(
+            "QListWidget { font-family: monospace; font-size: 8pt; }")
+        seq_layout.addWidget(self.ctrlSequencePointsList, 1)
+
+        # Gripper + Delay row
+        param_row = QHBoxLayout()
+        param_row.setSpacing(4)
+        grip_lbl = QLabel("Grip:")
+        grip_lbl.setStyleSheet("font-weight: normal; font-size: 9pt;")
+        param_row.addWidget(grip_lbl)
+        self.ctrlGripperSpinBox = QDoubleSpinBox()
+        self.ctrlGripperSpinBox.setRange(0, 100)
+        self.ctrlGripperSpinBox.setDecimals(0)
+        self.ctrlGripperSpinBox.setSuffix(" %")
+        param_row.addWidget(self.ctrlGripperSpinBox)
+        delay_lbl = QLabel("Delay:")
+        delay_lbl.setStyleSheet("font-weight: normal; font-size: 9pt;")
+        param_row.addWidget(delay_lbl)
+        self.ctrlDelaySpinBox = QDoubleSpinBox()
+        self.ctrlDelaySpinBox.setRange(0.0, 60.0)
+        self.ctrlDelaySpinBox.setSingleStep(0.1)
+        self.ctrlDelaySpinBox.setValue(1.0)
+        self.ctrlDelaySpinBox.setSuffix(" s")
+        param_row.addWidget(self.ctrlDelaySpinBox)
+        seq_layout.addLayout(param_row)
+
+        # Record / Delete buttons
+        rec_row = QHBoxLayout()
+        rec_row.setSpacing(6)
+        self.ctrlRecordButton = QPushButton("Record Current")
+        self.ctrlRecordButton.setMinimumHeight(32)
+        self.ctrlRecordButton.setStyleSheet(self._RECORD_STYLE)
+        rec_row.addWidget(self.ctrlRecordButton, 1)
+        self.ctrlDeleteButton = QPushButton("Delete")
+        self.ctrlDeleteButton.setMinimumHeight(32)
+        rec_row.addWidget(self.ctrlDeleteButton)
+        seq_layout.addLayout(rec_row)
+
+        # Playback controls
+        play_row = QHBoxLayout()
+        play_row.setSpacing(4)
+        self.ctrlPlayButton = QPushButton("Play")
+        self.ctrlPlayButton.setMinimumHeight(28)
+        play_row.addWidget(self.ctrlPlayButton)
+        self.ctrlPauseButton = QPushButton("Pause")
+        self.ctrlPauseButton.setMinimumHeight(28)
+        self.ctrlPauseButton.setEnabled(False)
+        play_row.addWidget(self.ctrlPauseButton)
+        self.ctrlStopButton = QPushButton("Stop")
+        self.ctrlStopButton.setMinimumHeight(28)
+        self.ctrlStopButton.setEnabled(False)
+        play_row.addWidget(self.ctrlStopButton)
+        seq_layout.addLayout(play_row)
+
+        # Speed + Loop row
+        speed_row = QHBoxLayout()
+        speed_lbl = QLabel("Speed:")
+        speed_lbl.setStyleSheet("font-weight: normal; font-size: 9pt;")
+        speed_row.addWidget(speed_lbl)
+        self.ctrlSpeedSpinBox = QDoubleSpinBox()
+        self.ctrlSpeedSpinBox.setRange(0.1, 10.0)
+        self.ctrlSpeedSpinBox.setSingleStep(0.1)
+        self.ctrlSpeedSpinBox.setValue(1.0)
+        self.ctrlSpeedSpinBox.setSuffix("x")
+        speed_row.addWidget(self.ctrlSpeedSpinBox)
+        self.ctrlLoopCheckBox = QCheckBox("Loop")
+        speed_row.addWidget(self.ctrlLoopCheckBox)
+        seq_layout.addLayout(speed_row)
+
+        # Save / Load
+        file_row = QHBoxLayout()
+        file_row.setSpacing(6)
+        self.ctrlSaveButton = QPushButton("Save")
+        file_row.addWidget(self.ctrlSaveButton)
+        self.ctrlLoadButton = QPushButton("Load")
+        file_row.addWidget(self.ctrlLoadButton)
+        seq_layout.addLayout(file_row)
+
+        layout.addWidget(seq_group)
+
+    @staticmethod
+    def _make_spinbox(suffix, lo, hi):
+        """Create a QDoubleSpinBox with standard settings."""
+        sb = QDoubleSpinBox()
+        sb.setRange(lo, hi)
+        sb.setDecimals(2)
+        sb.setSuffix(suffix)
+        return sb
+
+    def _on_mode_toggled(self, button):
+        """Handle Cartesian/Joint toggle."""
+        if button == self.cartesian_mode_btn:
+            self.target_stack.setCurrentIndex(0)
+            self.ik_solution_group.setVisible(True)
+            self.controlModeChanged.emit("cartesian")
+        else:
+            self.target_stack.setCurrentIndex(1)
+            self.ik_solution_group.setVisible(False)
+            self.controlModeChanged.emit("joint")
 
 
 class PointEditDialog(QtWidgets.QDialog):
@@ -1624,9 +1833,9 @@ class Ui_MainWindow:
 
     def setup_mode_panels(self):
         """Create all mode-specific panels (JOG removed - controls in sidebar)"""
-        # Mode 0: INVERSE
-        self.inverse_panel = InverseModePanel()
-        self.mode_stack.addWidget(self.inverse_panel)
+        # Mode 0: CONTROL (unified IK/FK + sequence recording)
+        self.control_panel = ControlModePanel()
+        self.mode_stack.addWidget(self.control_panel)
 
         # Mode 1: TEACH
         self.teach_panel = TeachModePanel()
@@ -1893,33 +2102,51 @@ class Ui_MainWindow:
         # Map FKGoAllButton to ExecuteMovementButton for compatibility
         self.FKGoAllButton = self.ExecuteMovementButton
 
-        # INVERSE mode widgets
-        self.IKInputSpinBoxX = self.inverse_panel.IKInputSpinBoxX
-        self.IKInputSpinBoxY = self.inverse_panel.IKInputSpinBoxY
-        self.IKInputSpinBoxZ = self.inverse_panel.IKInputSpinBoxZ
-        self.IKInputSpinBoxA = self.inverse_panel.IKInputSpinBoxA
-        self.IKInputSpinBoxB = self.inverse_panel.IKInputSpinBoxB
-        self.IKInputSpinBoxC = self.inverse_panel.IKInputSpinBoxC
-        self.IkIncButtonX = self.inverse_panel.IkIncButtonX
-        self.IkDecButtonX = self.inverse_panel.IkDecButtonX
-        self.IkIncButtonY = self.inverse_panel.IkIncButtonY
-        self.IkDecButtonY = self.inverse_panel.IkDecButtonY
-        self.IkIncButtonZ = self.inverse_panel.IkIncButtonZ
-        self.IkDecButtonZ = self.inverse_panel.IkDecButtonZ
-        self.IkOutputValueFrame = self.inverse_panel.IkOutputValueFrame
-        self.IkOutputValueX = self.inverse_panel.IkOutputValueX
-        self.IkOutputValueY = self.inverse_panel.IkOutputValueY
-        self.IkOutputValueZ = self.inverse_panel.IkOutputValueZ
-        self.IkOutputValueA = self.inverse_panel.IkOutputValueA
-        self.IkOutputValueB = self.inverse_panel.IkOutputValueB
-        self.IkOutputValueC = self.inverse_panel.IkOutputValueC
+        # CONTROL mode widgets (IK target inputs + output)
+        self.IKInputSpinBoxX = self.control_panel.IKInputSpinBoxX
+        self.IKInputSpinBoxY = self.control_panel.IKInputSpinBoxY
+        self.IKInputSpinBoxZ = self.control_panel.IKInputSpinBoxZ
+        self.IKInputSpinBoxA = self.control_panel.IKInputSpinBoxA
+        self.IKInputSpinBoxB = self.control_panel.IKInputSpinBoxB
+        self.IKInputSpinBoxC = self.control_panel.IKInputSpinBoxC
+        self.IkOutputValueFrame = self.control_panel.IkOutputValueFrame
+        self.IkOutputValueX = self.control_panel.IkOutputValueX
+        self.IkOutputValueY = self.control_panel.IkOutputValueY
+        self.IkOutputValueZ = self.control_panel.IkOutputValueZ
+        self.IkOutputValueA = self.control_panel.IkOutputValueA
+        self.IkOutputValueB = self.control_panel.IkOutputValueB
+        self.IkOutputValueC = self.control_panel.IkOutputValueC
 
-        # Create dummy IK labels/widgets that bifrost.py checks for enabled status
-        # Pass MainWindow as parent to prevent floating windows
-        self.InverseKinematicsLabel = QLabel(MainWindow)  # Dummy label
+        # Control panel action buttons
+        self.GoToButton = self.control_panel.GoToButton
+        self.GetCurrentButton = self.control_panel.GetCurrentButton
+
+        # Control panel joint target spinboxes
+        self.JointTargetSpinBox1 = self.control_panel.JointTargetSpinBox1
+        self.JointTargetSpinBox2 = self.control_panel.JointTargetSpinBox2
+        self.JointTargetSpinBox3 = self.control_panel.JointTargetSpinBox3
+        self.JointTargetSpinBox4 = self.control_panel.JointTargetSpinBox4
+        self.JointTargetSpinBox5 = self.control_panel.JointTargetSpinBox5
+        self.JointTargetSpinBox6 = self.control_panel.JointTargetSpinBox6
+
+        # Control panel sequence widgets
+        self.ctrlSequencePointsList = self.control_panel.ctrlSequencePointsList
+        self.ctrlSequenceNameEdit = self.control_panel.ctrlSequenceNameEdit
+        self.ctrlRecordButton = self.control_panel.ctrlRecordButton
+        self.ctrlDeleteButton = self.control_panel.ctrlDeleteButton
+        self.ctrlPlayButton = self.control_panel.ctrlPlayButton
+        self.ctrlPauseButton = self.control_panel.ctrlPauseButton
+        self.ctrlStopButton = self.control_panel.ctrlStopButton
+        self.ctrlSpeedSpinBox = self.control_panel.ctrlSpeedSpinBox
+        self.ctrlLoopCheckBox = self.control_panel.ctrlLoopCheckBox
+        self.ctrlGripperSpinBox = self.control_panel.ctrlGripperSpinBox
+        self.ctrlDelaySpinBox = self.control_panel.ctrlDelaySpinBox
+        self.ctrlSaveButton = self.control_panel.ctrlSaveButton
+        self.ctrlLoadButton = self.control_panel.ctrlLoadButton
+
+        # Dummy IK label for backward compatibility (bifrost.py checks enabled status)
+        self.InverseKinematicsLabel = QLabel(MainWindow)
         self.InverseKinematicsLabel.setVisible(False)
-        self.IkOutputValueFrame_dummy = QFrame(MainWindow)  # Dummy frame (separate from the real one)
-        self.IkOutputValueFrame_dummy.setVisible(False)
 
         # TEACH mode widgets
         self.sequencePointsList = self.teach_panel.sequencePointsList

@@ -4,8 +4,17 @@
   "base_frame": {
     "name": "base",
     "frame_type": "base",
-    "position": [0, 0, 0],
-    "orientation_quaternion": [1, 0, 0, 0],
+    "position": [
+      0.0,
+      0.0,
+      14.0
+    ],
+    "orientation_quaternion": [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
     "parent_frame": "world",
     "description": "Robot base mounting frame"
   },
@@ -13,8 +22,17 @@
     {
       "name": "default_tool",
       "frame_type": "tool",
-      "position": [0, 0, 0],
-      "orientation_quaternion": [1, 0, 0, 0],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientation_quaternion": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "parent_frame": "tcp",
       "description": "Default tool (no offset)"
     }

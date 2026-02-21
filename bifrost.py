@@ -39,12 +39,15 @@ from position_history_manager import PositionHistoryManager
 from calibration_panel import load_gripper_calibration_on_startup, load_home_position_on_startup, load_park_position_on_startup
 from config_g_manager import read_m569_directions, DEFAULT_CONFIG_G_PATH
 from coordinate_frames import FrameManager, pose_to_xyz_rpy
+from frame_controller import FrameController
 import forward_kinematics as fk
 
 import serial
 import time
 import json
 import logging
+from pathlib import Path
+
 import numpy as np
 
 # Import simulation hardware (always available for runtime toggle)
@@ -391,6 +394,14 @@ class BifrostGUI(Ui_MainWindow):
         self.frame_manager = FrameManager()
         logger.info(f"Frame manager initialised with frames: {self.frame_manager.list_frames()}")
 
+        # Initialise Frame Controller (orchestrates frame teaching + management)
+        self.frame_controller = FrameController(
+            frame_manager=self.frame_manager,
+            get_current_tcp=self._getCurrentTCPPosition,
+        )
+        self.frame_controller.set_config_path(Path("coordinate_frames.json"))
+        self.frame_controller.load_frames()
+
         # Initialise IK Controller with callbacks and frame manager
         self.ik_controller = IKController(
             output_update_callback=self._onIKOutputUpdate,
@@ -579,6 +590,10 @@ class BifrostGUI(Ui_MainWindow):
 
         # Set command sender for gripper controller
         self.gripper_controller.command_sender = self.command_sender
+
+        # Wire frame management panel to controller
+        if config.USE_MODERN_GUI and hasattr(self, 'frames_panel'):
+            self.frames_panel.set_controller(self.frame_controller)
 
         # ExecuteMovementButton no longer needed - jog mode controls in sidebar
 
@@ -1084,7 +1099,12 @@ class BifrostGUI(Ui_MainWindow):
             except KeyError:
                 logger.warning(f"Frame not found in frame manager: {frame_name}")
 
-        # Recalculate current position in new frame
+        # Re-run FK→display with new active frame
+        pos = self.robot_controller.get_current_positions()
+        self._syncIKFromJointAngles(
+            pos['Art1'], pos['Art2'], pos['Art3'],
+            pos['Art4'], pos['Art5'], pos['Art6']
+        )
         self._updateAxisColumnValues()
 
     def adjustCartesianValue(self, axis, delta):
@@ -1222,13 +1242,29 @@ class BifrostGUI(Ui_MainWindow):
         Compute forward kinematics and update IK spinboxes with current TCP pose.
         Signals are blocked to prevent feedback loops (FK->IK->FK).
 
+        If an active frame other than 'base' is selected, the TCP pose is
+        transformed into that frame before display.
+
         Args:
             q1-q6: Joint angles in degrees
         """
         try:
-            # Compute full TCP transform (position + orientation)
+            # Compute full TCP transform (position + orientation) in base frame
             tcp_transform = fk.compute_tcp_transform(q1, q2, q3, q4, q5, q6)
-            x, y, z, roll, pitch, yaw = pose_to_xyz_rpy(tcp_transform)
+
+            # Keep frame manager's TCP transform current (needed for tool/world chains)
+            self.frame_manager.update_tcp_transform(tcp_transform)
+
+            # Transform into active frame if not base
+            active_frame = self.frame_manager.get_active_frame()
+            if active_frame != "base":
+                display_pose = self.frame_manager.transform_pose(
+                    tcp_transform, "base", active_frame
+                )
+            else:
+                display_pose = tcp_transform
+
+            x, y, z, roll, pitch, yaw = pose_to_xyz_rpy(display_pose)
 
             # Convert orientation from radians to degrees
             roll_deg = np.degrees(roll)
@@ -1250,6 +1286,16 @@ class BifrostGUI(Ui_MainWindow):
 
         except Exception as e:
             logger.error(f"FK->TCP sync failed: {e}")
+
+    def _getCurrentTCPPosition(self) -> np.ndarray:
+        """Get current TCP position (x, y, z) from forward kinematics.
+        Used as callback for frame teaching."""
+        pos = self.robot_controller.get_current_positions()
+        tcp_transform = fk.compute_tcp_transform(
+            pos['Art1'], pos['Art2'], pos['Art3'],
+            pos['Art4'], pos['Art5'], pos['Art6']
+        )
+        return tcp_transform[:3, 3]
 
 # Control Panel Functions (Go To / Get Current / Mode Toggle)
     def _onControlModeChanged(self, mode):

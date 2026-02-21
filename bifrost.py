@@ -399,10 +399,12 @@ class BifrostGUI(Ui_MainWindow):
             frame_manager=self.frame_manager,
             get_current_tcp=self._getCurrentTCPPosition,
             on_base_frame_changed=self._syncBaseTransformToVisualizer,
+            on_tool_changed=self._onToolChanged,
         )
         self.frame_controller.set_config_path(Path("coordinate_frames.json"))
         self.frame_controller.load_frames()
         self._syncBaseTransformToVisualizer()
+        self._syncToolOffsetToVisualizer()
 
         # Initialise IK Controller with callbacks and frame manager
         self.ik_controller = IKController(
@@ -1257,14 +1259,17 @@ class BifrostGUI(Ui_MainWindow):
             # Keep frame manager's TCP transform current (needed for tool/world chains)
             self.frame_manager.update_tcp_transform(tcp_transform)
 
+            # Apply active tool offset (flange → tool tip)
+            tool_tip_pose = tcp_transform @ self.frame_manager.get_active_tool_offset()
+
             # Transform into active frame if not base
             active_frame = self.frame_manager.get_active_frame()
             if active_frame != "base":
                 display_pose = self.frame_manager.transform_pose(
-                    tcp_transform, "base", active_frame
+                    tool_tip_pose, "base", active_frame
                 )
             else:
-                display_pose = tcp_transform
+                display_pose = tool_tip_pose
 
             x, y, z, roll, pitch, yaw = pose_to_xyz_rpy(display_pose)
 
@@ -1290,14 +1295,15 @@ class BifrostGUI(Ui_MainWindow):
             logger.error(f"FK->TCP sync failed: {e}")
 
     def _getCurrentTCPPosition(self) -> np.ndarray:
-        """Get current TCP position (x, y, z) from forward kinematics.
-        Used as callback for frame teaching."""
+        """Get current tool tip position (x, y, z) from forward kinematics.
+        Includes active tool offset. Used as callback for frame teaching."""
         pos = self.robot_controller.get_current_positions()
         tcp_transform = fk.compute_tcp_transform(
             pos['Art1'], pos['Art2'], pos['Art3'],
             pos['Art4'], pos['Art5'], pos['Art6']
         )
-        return tcp_transform[:3, 3]
+        tool_tip = tcp_transform @ self.frame_manager.get_active_tool_offset()
+        return tool_tip[:3, 3]
 
     def _syncBaseTransformToVisualizer(self):
         """Push the base frame's world transform to the 3D visualizer."""
@@ -1307,6 +1313,26 @@ class BifrostGUI(Ui_MainWindow):
                 self.position_canvas.set_base_world_transform(base_frame.transform)
             except Exception as e:
                 logger.warning(f"Could not sync base transform to visualizer: {e}")
+
+    def _onToolChanged(self, tool_name: str):
+        """Handle active tool change — update visualizer and Cartesian display."""
+        self._syncToolOffsetToVisualizer()
+        # Re-run FK→display so spinboxes show the new tool tip position
+        pos = self.robot_controller.get_current_positions()
+        self._syncIKFromJointAngles(
+            pos['Art1'], pos['Art2'], pos['Art3'],
+            pos['Art4'], pos['Art5'], pos['Art6']
+        )
+        self._updateAxisColumnValues()
+
+    def _syncToolOffsetToVisualizer(self):
+        """Push the active tool offset to the 3D visualizer."""
+        if hasattr(self, 'position_canvas') and self.position_canvas is not None:
+            try:
+                tool_offset = self.frame_manager.get_active_tool_offset()
+                self.position_canvas.set_tool_offset(tool_offset)
+            except Exception as e:
+                logger.warning(f"Could not sync tool offset to visualizer: {e}")
 
 # Control Panel Functions (Go To / Get Current / Mode Toggle)
     def _onControlModeChanged(self, mode):

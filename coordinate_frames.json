@@ -35,9 +35,26 @@
       ],
       "parent_frame": "tcp",
       "description": "Default tool (no offset)"
+    },
+    {
+      "name": "test",
+      "frame_type": "tool",
+      "position": [
+        0.0,
+        0.0,
+        10.0
+      ],
+      "orientation_quaternion": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "parent_frame": "tcp",
+      "description": ""
     }
   ],
   "workpieces": [],
-  "active_frame": "world",
+  "active_frame": "base",
   "active_tool": "default_tool"
 }

@@ -567,6 +567,8 @@ class Robot3DCanvas(gl.GLViewWidget):
 
         # Base-in-world transform (from coordinate_frames.json base frame)
         self._base_world_transform = np.eye(4)
+        # Active tool offset relative to TCP flange (e.g. gripper Z length)
+        self._tool_offset = np.eye(4)
 
         # Force reload DH parameters at startup to ensure latest values
         fk.reload_dh_parameters()
@@ -741,6 +743,11 @@ class Robot3DCanvas(gl.GLViewWidget):
         mounted position/orientation. Invalidates cached base frame visuals."""
         self._base_world_transform = np.array(transform, dtype=np.float64)
         self._base_frame_initialized = False  # Force redraw of base frame axes
+
+    def set_tool_offset(self, transform: np.ndarray):
+        """Set the active tool offset (relative to TCP flange).
+        The TCP indicator and frame axes will be drawn at the tool tip."""
+        self._tool_offset = np.array(transform, dtype=np.float64)
 
     def show_home_position(self):
         """Display robot at home position (all joints at 0)"""
@@ -991,8 +998,9 @@ class Robot3DCanvas(gl.GLViewWidget):
             self.addItem(mesh_item)
             self.robot_mesh_items.append(mesh_item)
 
-        # Add TCP indicator sphere
-        tcp_pos = transforms[6][:3, 3]
+        # Add TCP indicator sphere (at tool tip if tool offset is set)
+        tool_tip_transform = transforms[6] @ self._tool_offset
+        tcp_pos = tool_tip_transform[:3, 3]
         tcp_verts, tcp_faces = create_dome_mesh(10, segments=12, rings=6)
         tcp_bottom = tcp_verts.copy()
         tcp_bottom[:, 2] = -tcp_bottom[:, 2]
@@ -1281,7 +1289,10 @@ class Robot3DCanvas(gl.GLViewWidget):
             self.addItem(ring_mesh)
             self.robot_mesh_items.append(ring_mesh)
 
-        # 10. TCP INDICATOR - Red sphere at TCP
+        # 10. TCP INDICATOR - Red sphere at tool tip
+        # For primitives path, approximate tool tip using translation offset only
+        tool_tip_pos = np.array(tcp_pos) + self._tool_offset[:3, 3]
+
         tcp_indicator_verts, tcp_indicator_faces = create_dome_mesh(10, segments=12, rings=6)
         # Create full sphere by mirroring dome
         tcp_bottom_verts = tcp_indicator_verts.copy()
@@ -1293,7 +1304,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         tcp_bottom_faces = tcp_indicator_faces + n_top_verts
         tcp_sphere_faces = np.vstack([tcp_indicator_faces, tcp_bottom_faces])
 
-        tcp_sphere_verts = transform_mesh(tcp_sphere_verts, tcp_pos)
+        tcp_sphere_verts = transform_mesh(tcp_sphere_verts, tool_tip_pos)
 
         tcp_mesh = gl.GLMeshItem(
             vertexes=tcp_sphere_verts,
@@ -1482,12 +1493,11 @@ class Robot3DCanvas(gl.GLViewWidget):
                 self.removeItem(item)
         self.tcp_frame_items = []
 
-        # Get all joint transforms and apply base-in-world
+        # Get all joint transforms, apply tool offset and base-in-world
         raw_transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
-        tcp_world = self._base_world_transform @ raw_transforms[6]
+        tcp_world = self._base_world_transform @ raw_transforms[6] @ self._tool_offset
 
-        # Use TCP position and orientation (transforms[6] = after all joints)
-        # This is the raw DH joint 6 frame - no calibration applied
+        # Use tool tip position and orientation
         tcp_pos = tcp_world[0:3, 3]
         tcp_rot = tcp_world[0:3, 0:3]
 
@@ -1941,9 +1951,9 @@ class Robot3DCanvas(gl.GLViewWidget):
             mesh_item.resetTransform()
             mesh_item.applyTransform(qmatrix, local=False)
 
-        # Update TCP position
+        # Update TCP position (at tool tip if tool offset is set)
         if self._tcp_mesh_item:
-            tcp_transform = B @ transforms[6]
+            tcp_transform = B @ transforms[6] @ self._tool_offset
             qmatrix = self._numpy_to_qmatrix4x4(tcp_transform)
             self._tcp_mesh_item.resetTransform()
             self._tcp_mesh_item.applyTransform(qmatrix, local=False)

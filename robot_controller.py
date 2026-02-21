@@ -113,6 +113,16 @@ class RobotController:
         logger.info("RobotController initialised")
         self._log_configuration()
 
+    def reset_position_tracking(self) -> None:
+        """
+        Clear last_valid_positions so the next M114 is accepted without
+        change-rate validation.  Call this when homing completes, because
+        G92 resets the firmware coordinate system and the first post-homing
+        report will look like a large instantaneous jump.
+        """
+        self.last_valid_positions.clear()
+        logger.info("Position tracking reset (post-homing)")
+
     def _log_configuration(self) -> None:
         """Log robot configuration for debugging"""
         logger.info("="*60)

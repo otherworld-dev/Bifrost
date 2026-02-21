@@ -1889,6 +1889,7 @@ class BifrostGUI(Ui_MainWindow):
         """Callback when homing cycle completes"""
         self.is_homing = False
         self.ui_state_manager.update_homing_state(False)
+        self.robot_controller.reset_position_tracking()
 
     def _triggerCommandSync(self):
         """Callback to trigger command sync to actual positions"""

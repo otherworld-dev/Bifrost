@@ -1187,6 +1187,9 @@ class BifrostGUI(Ui_MainWindow):
             new_joints['Art4'], new_joints['Art5'], new_joints['Art6']
         )
 
+        # Update axis column Cartesian display immediately (don't wait for M114 feedback)
+        self._updateAxisColumnValues()
+
         # Execute the move
         self.FKMoveAll()
         logger.debug(f"[JOG MODE] Jacobian jog executed, delta={cartesian_delta}")
@@ -2090,6 +2093,10 @@ class BifrostGUI(Ui_MainWindow):
 
         # Continuous TCP tracking: compute FK and update IK spinboxes
         self._syncIKFromJointAngles(*joint_angles)
+
+        # Update axis column if in Cartesian mode (rows are X/Y/Z/Roll/Pitch/Yaw, not J1-J6)
+        if hasattr(self, 'axis_column') and self.axis_column.get_mode() != "joint":
+            self._updateAxisColumnValues()
 
     def _onStateUpdate(self, state, color):
         """Callback to update robot state display"""

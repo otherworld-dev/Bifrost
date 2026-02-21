@@ -42,6 +42,7 @@ class FrameController:
         on_tools_updated: Optional[Callable[[List[str]], None]] = None,
         on_workpieces_updated: Optional[Callable[[List[str]], None]] = None,
         on_teaching_progress: Optional[Callable[[TeachingProgress], None]] = None,
+        on_base_frame_changed: Optional[Callable[[], None]] = None,
         get_current_tcp: Optional[Callable[[], np.ndarray]] = None,
     ):
         """
@@ -55,6 +56,7 @@ class FrameController:
             on_tools_updated: Callback(tool_list) when tool list changes
             on_workpieces_updated: Callback(workpiece_list) when workpiece list changes
             on_teaching_progress: Callback(progress) during frame teaching
+            on_base_frame_changed: Callback() when base frame is updated
             get_current_tcp: Callback() -> (x, y, z) to get current TCP position
         """
         self.frame_manager = frame_manager or FrameManager()
@@ -67,6 +69,7 @@ class FrameController:
         self.on_tools_updated = on_tools_updated
         self.on_workpieces_updated = on_workpieces_updated
         self.on_teaching_progress = on_teaching_progress
+        self.on_base_frame_changed = on_base_frame_changed
         self.get_current_tcp = get_current_tcp
 
         # Config file path
@@ -294,6 +297,8 @@ class FrameController:
         """
         self.frame_manager.update_base_frame(x, y, z, roll, pitch, yaw)
         self._auto_save()
+        if self.on_base_frame_changed:
+            self.on_base_frame_changed()
         logger.info(f"Base frame updated: ({x}, {y}, {z}), ({roll}, {pitch}, {yaw})")
 
     # ========== Frame Teaching ==========

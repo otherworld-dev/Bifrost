@@ -398,9 +398,11 @@ class BifrostGUI(Ui_MainWindow):
         self.frame_controller = FrameController(
             frame_manager=self.frame_manager,
             get_current_tcp=self._getCurrentTCPPosition,
+            on_base_frame_changed=self._syncBaseTransformToVisualizer,
         )
         self.frame_controller.set_config_path(Path("coordinate_frames.json"))
         self.frame_controller.load_frames()
+        self._syncBaseTransformToVisualizer()
 
         # Initialise IK Controller with callbacks and frame manager
         self.ik_controller = IKController(
@@ -1296,6 +1298,15 @@ class BifrostGUI(Ui_MainWindow):
             pos['Art4'], pos['Art5'], pos['Art6']
         )
         return tcp_transform[:3, 3]
+
+    def _syncBaseTransformToVisualizer(self):
+        """Push the base frame's world transform to the 3D visualizer."""
+        if hasattr(self, 'position_canvas') and self.position_canvas is not None:
+            try:
+                base_frame = self.frame_manager.get_frame("base")
+                self.position_canvas.set_base_world_transform(base_frame.transform)
+            except Exception as e:
+                logger.warning(f"Could not sync base transform to visualizer: {e}")
 
 # Control Panel Functions (Go To / Get Current / Mode Toggle)
     def _onControlModeChanged(self, mode):

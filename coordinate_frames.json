@@ -7,7 +7,7 @@
     "position": [
       0.0,
       0.0,
-      14.0
+      0.0
     ],
     "orientation_quaternion": [
       1.0,
@@ -38,6 +38,6 @@
     }
   ],
   "workpieces": [],
-  "active_frame": "base",
+  "active_frame": "world",
   "active_tool": "default_tool"
 }

@@ -565,6 +565,9 @@ class Robot3DCanvas(gl.GLViewWidget):
         self._tcp_mesh_item = None  # Separate TCP indicator
         self._base_frame_initialized = False  # Base frame is static
 
+        # Base-in-world transform (from coordinate_frames.json base frame)
+        self._base_world_transform = np.eye(4)
+
         # Force reload DH parameters at startup to ensure latest values
         fk.reload_dh_parameters()
         logger.info("DH parameters loaded at visualizer startup")
@@ -732,6 +735,12 @@ class Robot3DCanvas(gl.GLViewWidget):
 
         # Set background colour to white
         self.setBackgroundColor('w')
+
+    def set_base_world_transform(self, transform: np.ndarray):
+        """Set the base-in-world transform for rendering the robot at its
+        mounted position/orientation. Invalidates cached base frame visuals."""
+        self._base_world_transform = np.array(transform, dtype=np.float64)
+        self._base_frame_initialized = False  # Force redraw of base frame axes
 
     def show_home_position(self):
         """Display robot at home position (all joints at 0)"""
@@ -921,9 +930,11 @@ class Robot3DCanvas(gl.GLViewWidget):
             active: If True, use active colors; if False, use inactive (gray)
         """
         q1, q2, q3, q4, q5, q6 = joint_angles
+        B = self._base_world_transform
 
-        # Get cumulative transforms for each joint
-        transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
+        # Get cumulative transforms for each joint (in base frame), then apply base-in-world
+        raw_transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
+        transforms = [B @ T for T in raw_transforms]
 
         # Clear existing mesh items
         for item in self.robot_mesh_items:
@@ -1016,9 +1027,16 @@ class Robot3DCanvas(gl.GLViewWidget):
         [6] TCP - After J6 (wrist yaw) / tool center point
 
         Args:
-            joint_positions: List of 7 tuples [(x,y,z), ...] for joints
+            joint_positions: List of 7 tuples [(x,y,z), ...] for joints (in base frame)
             active: If True, use active colours; if False, use inactive (grey)
         """
+        # Apply base-in-world transform to all joint positions
+        B = self._base_world_transform
+        if not np.allclose(B, np.eye(4)):
+            R = B[:3, :3]
+            t = B[:3, 3]
+            joint_positions = [tuple(R @ np.array(p) + t) for p in joint_positions]
+
         # DEBUG: Print received positions
         logger.info(f"_draw_robot_primitives received positions:")
         for i, pos in enumerate(joint_positions):
@@ -1303,8 +1321,13 @@ class Robot3DCanvas(gl.GLViewWidget):
         if self.trajectory_item:
             self.removeItem(self.trajectory_item)
 
-        # Convert to numpy array
+        # Convert to numpy array and apply base-in-world transform
         positions = np.array(tcp_points)
+        B = self._base_world_transform
+        if not np.allclose(B, np.eye(4)):
+            R = B[:3, :3]
+            t = B[:3, 3]
+            positions = (positions @ R.T) + t
 
         # Create gradient colors (blue to red based on time)
         n_points = len(positions)
@@ -1327,6 +1350,7 @@ class Robot3DCanvas(gl.GLViewWidget):
     def draw_base_frame(self, length=80):
         """
         Draw coordinate frame at base (XYZ axes) with forward direction arrow.
+        Position/orientation follows the base-in-world transform.
         OPTIMIZED: Only creates items once (base frame is static).
 
         Args:
@@ -1349,11 +1373,13 @@ class Robot3DCanvas(gl.GLViewWidget):
                     pass
         self.base_frame_items = []
 
-        origin = np.array([0, 0, 0])
+        B = self._base_world_transform
+        origin = B[:3, 3].copy()
+        R = B[:3, :3]
         arrow_width = 6  # Thicker lines for visibility
 
         # X axis - Red (FORWARD DIRECTION)
-        x_axis_points = np.array([origin, origin + [length, 0, 0]])
+        x_axis_points = np.array([origin, origin + R @ np.array([length, 0, 0])])
         x_axis = gl.GLLinePlotItem(
             pos=x_axis_points,
             color=(1, 0, 0, 1.0),
@@ -1364,7 +1390,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.base_frame_items.append(x_axis)
 
         # Y axis - Green
-        y_axis_points = np.array([origin, origin + [0, length, 0]])
+        y_axis_points = np.array([origin, origin + R @ np.array([0, length, 0])])
         y_axis = gl.GLLinePlotItem(
             pos=y_axis_points,
             color=(0, 0.8, 0, 1.0),
@@ -1375,7 +1401,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.base_frame_items.append(y_axis)
 
         # Z axis - Blue
-        z_axis_points = np.array([origin, origin + [0, 0, length]])
+        z_axis_points = np.array([origin, origin + R @ np.array([0, 0, length])])
         z_axis = gl.GLLinePlotItem(
             pos=z_axis_points,
             color=(0, 0, 1, 1.0),
@@ -1386,12 +1412,11 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.base_frame_items.append(z_axis)
 
         # FORWARD DIRECTION ARROW (along X+) - prominent indicator
-        # Arrow shaft - starts from base front, points along X+
-        arrow_start = np.array([60, 0, 5])  # Slightly in front of base, raised a bit
-        arrow_end = np.array([150, 0, 5])   # Points forward along X+
+        arrow_start = origin + R @ np.array([60, 0, 5])
+        arrow_end = origin + R @ np.array([150, 0, 5])
         arrow_shaft = gl.GLLinePlotItem(
             pos=np.array([arrow_start, arrow_end]),
-            color=(0.9, 0.1, 0.1, 1.0),  # Bright red
+            color=(0.9, 0.1, 0.1, 1.0),
             width=6,
             antialias=True
         )
@@ -1400,8 +1425,8 @@ class Robot3DCanvas(gl.GLViewWidget):
 
         # Arrowhead - two angled lines forming a ">" shape
         arrowhead_size = 20
-        arrowhead_left = np.array([arrow_end[0] - arrowhead_size, arrowhead_size * 0.5, 5])
-        arrowhead_right = np.array([arrow_end[0] - arrowhead_size, -arrowhead_size * 0.5, 5])
+        arrowhead_left = origin + R @ np.array([150 - arrowhead_size, arrowhead_size * 0.5, 5])
+        arrowhead_right = origin + R @ np.array([150 - arrowhead_size, -arrowhead_size * 0.5, 5])
 
         arrowhead1 = gl.GLLinePlotItem(
             pos=np.array([arrow_end, arrowhead_left]),
@@ -1421,6 +1446,24 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.addItem(arrowhead2)
         self.base_frame_items.append(arrowhead2)
 
+        # World origin indicator (thin axes) — only if base is offset from world
+        if not np.allclose(B, np.eye(4)):
+            world_origin = np.array([0.0, 0.0, 0.0])
+            world_len = length * 0.5
+            for axis_vec, color in [
+                ([world_len, 0, 0], (1, 0, 0, 0.3)),
+                ([0, world_len, 0], (0, 0.8, 0, 0.3)),
+                ([0, 0, world_len], (0, 0, 1, 0.3)),
+            ]:
+                item = gl.GLLinePlotItem(
+                    pos=np.array([world_origin, np.array(axis_vec)]),
+                    color=color,
+                    width=2,
+                    antialias=True
+                )
+                self.addItem(item)
+                self.base_frame_items.append(item)
+
         self._base_frame_initialized = True
         logger.debug("Base frame initialized (persistent)")
 
@@ -1439,13 +1482,14 @@ class Robot3DCanvas(gl.GLViewWidget):
                 self.removeItem(item)
         self.tcp_frame_items = []
 
-        # Get all joint transforms
-        transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
+        # Get all joint transforms and apply base-in-world
+        raw_transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
+        tcp_world = self._base_world_transform @ raw_transforms[6]
 
         # Use TCP position and orientation (transforms[6] = after all joints)
         # This is the raw DH joint 6 frame - no calibration applied
-        tcp_pos = transforms[6][0:3, 3]
-        tcp_rot = transforms[6][0:3, 0:3]
+        tcp_pos = tcp_world[0:3, 3]
+        tcp_rot = tcp_world[0:3, 0:3]
 
         # Create frame axes (X, Y, Z in TCP frame)
         x_axis_tcp = tcp_rot @ np.array([length, 0, 0])
@@ -1489,10 +1533,11 @@ class Robot3DCanvas(gl.GLViewWidget):
         """Draw coordinate frames at each joint origin."""
         self._clear_joint_frames()
 
-        transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
+        B = self._base_world_transform
+        raw_transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
         # transforms[0]=base, [1]=J1, [2]=J2, ..., [6]=TCP
-        for i, T in enumerate(transforms):
-            items = self.draw_coordinate_frame(T, name=f"joint_{i}", length=length, width=2)
+        for i, T in enumerate(raw_transforms):
+            items = self.draw_coordinate_frame(B @ T, name=f"joint_{i}", length=length, width=2)
             self._joint_frame_items.extend(items)
 
     def _clear_joint_frames(self):
@@ -1870,6 +1915,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             return  # Fall back handled elsewhere
 
         q1, q2, q3, q4, q5, q6 = joint_angles
+        B = self._base_world_transform
 
         # Get cumulative transforms for each joint
         transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
@@ -1885,10 +1931,10 @@ class Robot3DCanvas(gl.GLViewWidget):
             'gripper': 6,
         }
 
-        # Update each mesh transform
+        # Update each mesh transform (pre-multiply by base-in-world)
         for stl_name, mesh_item in self._persistent_mesh_items.items():
             transform_idx = transform_indices.get(stl_name, 0)
-            transform_4x4 = transforms[transform_idx]
+            transform_4x4 = B @ transforms[transform_idx]
 
             # Convert to QMatrix4x4 and apply
             qmatrix = self._numpy_to_qmatrix4x4(transform_4x4)
@@ -1897,7 +1943,7 @@ class Robot3DCanvas(gl.GLViewWidget):
 
         # Update TCP position
         if self._tcp_mesh_item:
-            tcp_transform = transforms[6].copy()
+            tcp_transform = B @ transforms[6]
             qmatrix = self._numpy_to_qmatrix4x4(tcp_transform)
             self._tcp_mesh_item.resetTransform()
             self._tcp_mesh_item.applyTransform(qmatrix, local=False)

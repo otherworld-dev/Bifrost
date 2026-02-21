@@ -7,13 +7,17 @@ The robot uses a bevel gear differential mechanism for the last two wrist joints
 - Motor V (Drive 5) and Motor W (Drive 6) are physical motors
 - The differential couples these motors mechanically
 
+The J6 (roll) path through the bevel gear differential has a 2:1 mechanical
+reduction compared to J5 (tilt). Both motors must turn 2° for 1° of J6, but
+only 1° for 1° of J5.
+
 Forward Differential (joint angles → motor positions):
-    Motor_V = Art6 + Art5
-    Motor_W = Art6 - Art5
+    Motor_V = 2*Art6 + Art5
+    Motor_W = 2*Art6 - Art5
 
 Inverse Differential (motor positions → joint angles):
     Art5 = (Motor_V - Motor_W) / 2
-    Art6 = (Motor_V + Motor_W) / 2
+    Art6 = (Motor_V + Motor_W) / 4
 """
 
 from typing import Tuple
@@ -39,8 +43,8 @@ class DifferentialKinematics:
         Returns:
             tuple: (motor_v, motor_w) in degrees
         """
-        motor_v = art6 + art5
-        motor_w = art6 - art5
+        motor_v = 2.0 * art6 + art5
+        motor_w = 2.0 * art6 - art5
         return (motor_v, motor_w)
 
     @staticmethod
@@ -56,7 +60,7 @@ class DifferentialKinematics:
             tuple: (art5, art6) in degrees
         """
         art5 = (motor_v - motor_w) / 2.0
-        art6 = (motor_v + motor_w) / 2.0
+        art6 = (motor_v + motor_w) / 4.0
         return (art5, art6)
 
     @staticmethod

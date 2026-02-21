@@ -25,7 +25,7 @@ M569 P5 S1 T1.0:1.0:0.2:0.2                                              ; physi
 M569 P6 S1 T1.0:1.0:0.2:0.2                                              ; physical drive 6 goes forwards using A4988 driver timings
 M584 X0 Y1:2 Z3 U4 V5 W6                                                 ; set drive mapping
 M350 X16 Y16 Z16 U16 V16 W16 I0                                          ; configure microstepping (no interpolation - A4988 drivers)
-M92 X44.50 Y265.00 Z265.00 U17.55 V36 W36                           ; set steps per mm (Y matches Z: same 30:1 gear reduction)
+M92 X44.50 Y265.00 Z265.00 U17.55 V18.4 W18.4                           ; set steps per mm (Y matches Z: same 30:1 gear reduction)
 M566 X900.00 Y900.00 Z900.00 U900.00 V9000.00 W9000.00                   ; set maximum instantaneous speed changes (mm/min)
 M203 X2000.00 Y800.00 Z800.00 U2000.00 V5000.00 W5000.00                 ; set maximum speeds (mm/min)
 M201 X10.00 Y10.00 Z10.00 U10.00 V100.00 W100.00                         ; set accelerations (mm/s^2)
@@ -36,8 +36,8 @@ M84 S30                                                                  ; Set i
 M950 S0 C"PB_6"                                                          ; Servo on PROBE header (J40)
 
 ; Axis Limits
-M208 X-97 Y-90 Z-90 U-180 V-200 W-200 S1                                 ; set axis minima
-M208 X97 Y90 Z90 U180 V200 W200 S0                                       ; set axis maxima
+M208 X-97 Y-90 Z-90 U-180 V-450 W-450 S1                                 ; set axis minima (V/W: 2*Art6+Art5 range)
+M208 X97 Y90 Z90 U180 V450 W450 S0                                       ; set axis maxima
 M564 S0                                                                  ; allow movement outside boundaries
 
 ; Endstops

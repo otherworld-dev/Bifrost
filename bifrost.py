@@ -693,6 +693,15 @@ class BifrostGUI(Ui_MainWindow):
     def sendHomePositionCommand(self):
         """Send command to move all axes to the calibrated home position"""
         hp = config.HOME_POSITION
+        if self.SimulationModeCheckBox.isChecked():
+            self.SpinBoxArt1.setValue(hp.get('Art1', 0.0))
+            self.SpinBoxArt2.setValue(hp.get('Art2', 0.0))
+            self.SpinBoxArt3.setValue(hp.get('Art3', 0.0))
+            self.SpinBoxArt4.setValue(hp.get('Art4', 0.0))
+            self.SpinBoxArt5.setValue(hp.get('Art5', 0.0))
+            self.SpinBoxArt6.setValue(hp.get('Art6', 0.0))
+            self._updateSimulationVisualization()
+            return
         art5 = hp.get('Art5', 0.0)
         art6 = hp.get('Art6', 0.0)
         motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(art5, art6)
@@ -712,6 +721,16 @@ class BifrostGUI(Ui_MainWindow):
     def sendParkCommand(self):
         """Park the robot: move to park position, close gripper, disable motors"""
         pp = config.PARK_POSITION
+        if self.SimulationModeCheckBox.isChecked():
+            self.SpinBoxArt1.setValue(pp.get('Art1', 0.0))
+            self.SpinBoxArt2.setValue(pp.get('Art2', 0.0))
+            self.SpinBoxArt3.setValue(pp.get('Art3', 0.0))
+            self.SpinBoxArt4.setValue(pp.get('Art4', 0.0))
+            self.SpinBoxArt5.setValue(pp.get('Art5', 0.0))
+            self.SpinBoxArt6.setValue(pp.get('Art6', 0.0))
+            self.SpinBoxGripper.setValue(0)
+            self._updateSimulationVisualization()
+            return
         art5 = pp.get('Art5', 0.0)
         art6 = pp.get('Art6', 0.0)
         motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(art5, art6)

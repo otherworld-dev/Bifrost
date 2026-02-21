@@ -23,7 +23,7 @@
             "link": 3,
             "theta_offset": 90.0,
             "d": 0.0,
-            "a": -6.0,
+            "a": 0.0,
             "alpha": 90.0,
             "description": "Elbow"
         },

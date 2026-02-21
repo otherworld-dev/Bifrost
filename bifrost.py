@@ -36,7 +36,7 @@ from ui_state_manager import UIStateManager, ConnectionState as UIConnectionStat
 from serial_response_router import SerialResponseRouter
 from visualization_controller import VisualizationController
 from position_history_manager import PositionHistoryManager
-from calibration_panel import load_gripper_calibration_on_startup, load_home_position_on_startup
+from calibration_panel import load_gripper_calibration_on_startup, load_home_position_on_startup, load_park_position_on_startup
 from config_g_manager import read_m569_directions, DEFAULT_CONFIG_G_PATH
 from coordinate_frames import FrameManager, pose_to_xyz_rpy
 import forward_kinematics as fk
@@ -64,6 +64,7 @@ logger = logging.getLogger(__name__)
 # Load calibration from files (if they exist) before GUI starts
 load_gripper_calibration_on_startup()
 load_home_position_on_startup()
+load_park_position_on_startup()
 
 # This application is designed for RepRapFirmware (RRF) only
 # All parsing patterns are now in parsing_patterns.py module
@@ -261,6 +262,7 @@ class BifrostGUI(Ui_MainWindow):
 
         self.HomeButton.pressed.connect(self.sendHomingCycleCommand)
         self.ZeroPositionButton.pressed.connect(self.sendHomePositionCommand)
+        self.ParkButton.pressed.connect(self.sendParkCommand)
         self.EmergencyStopButton.pressed.connect(self.sendEmergencyStopCommand)
 
         # Movement type now controlled by axis column - connect its signal
@@ -706,6 +708,28 @@ class BifrostGUI(Ui_MainWindow):
             }
         )
         self.command_sender.send_if_connected(command)
+
+    def sendParkCommand(self):
+        """Park the robot: move to park position, close gripper, disable motors"""
+        pp = config.PARK_POSITION
+        art5 = pp.get('Art5', 0.0)
+        art6 = pp.get('Art6', 0.0)
+        motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(art5, art6)
+        move_command = CommandBuilder.build_axis_command(
+            "G0",
+            {
+                "X": pp.get('Art1', 0.0),
+                "Y": pp.get('Art2', 0.0),
+                "Z": pp.get('Art3', 0.0),
+                "U": pp.get('Art4', 0.0),
+                "V": motor_v,
+                "W": motor_w,
+            }
+        )
+        self.command_sender.send_if_connected(move_command)
+        self.gripper_controller.move_to_preset('closed')
+        self.command_sender.send_if_connected("M400")  # Wait for moves to finish
+        self.command_sender.send_if_connected("M84")   # Disable motors
 
     def sendKillAlarmCommand(self):
         """Send M999 command (RRF: Clear emergency stop / reset)"""

@@ -128,5 +128,12 @@ HOME_POSITION = {
     'Art4': 0.0, 'Art5': 0.0, 'Art6': 0.0,
 }
 
+# ========== Park Position ==========
+# Position the robot moves to before shutdown (gripper closes, motors disable after arrival)
+PARK_POSITION = {
+    'Art1': 0.0, 'Art2': 90.0, 'Art3': -90.0,
+    'Art4': 0.0, 'Art5': 0.0, 'Art6': 0.0,
+}
+
 # ========== Simulation Mode ==========
 USE_SIMULATION_MODE = False  # Set to True to use simulated robot (no hardware required)

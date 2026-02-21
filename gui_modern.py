@@ -771,6 +771,23 @@ class AxisControlColumn(QFrame):
         self.ZeroPositionButton.setToolTip("Go to home position")
         quick_layout.addWidget(self.ZeroPositionButton)
 
+        # Park button
+        self.ParkButton = QPushButton("Park")
+        self.ParkButton.setFixedHeight(24)
+        self.ParkButton.setStyleSheet("""
+            QPushButton {
+                font-size: 7pt;
+                border: 1px solid #888;
+                border-radius: 2px;
+                background: #fff;
+            }
+            QPushButton:hover {
+                background: #f4e8e8;
+            }
+        """)
+        self.ParkButton.setToolTip("Park robot, close gripper, disable motors")
+        quick_layout.addWidget(self.ParkButton)
+
         # Jog mode checkbox
         self.jog_mode_checkbox = QCheckBox("Jog Mode")
         self.jog_mode_checkbox.setStyleSheet("font-size: 7pt;")
@@ -1157,6 +1174,12 @@ class JogModePanel(QFrame):
         self.ZeroPositionButton.setMinimumHeight(40)
         self.ZeroPositionButton.setMinimumWidth(200)
         quick_layout.addWidget(self.ZeroPositionButton)
+
+        self.ParkButton = QPushButton("Park Robot")
+        self.ParkButton.setMinimumHeight(40)
+        self.ParkButton.setMinimumWidth(200)
+        self.ParkButton.setToolTip("Park robot, close gripper, disable motors")
+        quick_layout.addWidget(self.ParkButton)
 
         layout.addWidget(quick_group)
 
@@ -2077,6 +2100,7 @@ class Ui_MainWindow:
         # Quick command buttons from axis column
         self.HomeButton = axis_column.HomeButton
         self.ZeroPositionButton = axis_column.ZeroPositionButton
+        self.ParkButton = axis_column.ParkButton
 
         # Movement type from axis column (G0/G1 buttons replaced radio buttons)
         # Create dummy radio buttons that mirror axis column state for compatibility

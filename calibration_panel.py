@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 DH_PARAMS_FILE = Path(__file__).parent / 'dh_parameters.json'
 GRIPPER_CALIBRATION_FILE = Path(__file__).parent / 'gripper_calibration.json'
 HOME_POSITION_FILE = Path(__file__).parent / 'home_position.json'
+PARK_POSITION_FILE = Path(__file__).parent / 'park_position.json'
 
 
 def load_gripper_calibration_on_startup():
@@ -58,6 +59,25 @@ def load_home_position_on_startup():
             logger.debug("No home position file found, using defaults")
     except Exception as e:
         logger.error(f"Error loading home position on startup: {e}")
+
+
+def load_park_position_on_startup():
+    """
+    Load park position from file and apply to config module.
+    Call this at application startup.
+    """
+    try:
+        if PARK_POSITION_FILE.exists():
+            with open(PARK_POSITION_FILE, 'r') as f:
+                data = json.load(f)
+            for joint in ('Art1', 'Art2', 'Art3', 'Art4', 'Art5', 'Art6'):
+                if joint in data:
+                    config.PARK_POSITION[joint] = data[joint]
+            logger.info(f"Loaded park position: {config.PARK_POSITION}")
+        else:
+            logger.debug("No park position file found, using defaults")
+    except Exception as e:
+        logger.error(f"Error loading park position on startup: {e}")
 
 
 class JointCalibrationWidget(QtWidgets.QWidget):
@@ -631,6 +651,131 @@ class HomePositionWidget(QtWidgets.QWidget):
         return None
 
 
+class ParkPositionWidget(QtWidgets.QWidget):
+    """Widget for setting the park position (joint angles before shutdown)"""
+
+    position_changed = QtCore.pyqtSignal()
+
+    JOINT_LIMITS = {
+        'Art1': (-97, 97),
+        'Art2': (-90, 90),
+        'Art3': (-90, 90),
+        'Art4': (-180, 180),
+        'Art5': (-90, 90),
+        'Art6': (-180, 180),
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.spinboxes = {}
+        self._loading = False
+        self.setup_ui()
+        self.load_from_config()
+
+    def setup_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        header = QtWidgets.QLabel("<b>Park Position</b>")
+        header.setStyleSheet("font-size: 14px;")
+        layout.addWidget(header)
+
+        desc = QtWidgets.QLabel(
+            "Position the robot moves to before shutdown. "
+            "Gripper closes and motors disable after arrival."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #666; margin-bottom: 4px;")
+        layout.addWidget(desc)
+
+        grid = QtWidgets.QGridLayout()
+        for i, (joint, (lo, hi)) in enumerate(self.JOINT_LIMITS.items()):
+            label = QtWidgets.QLabel(f"{joint}:")
+            label.setFixedWidth(40)
+            grid.addWidget(label, i // 3, (i % 3) * 2)
+
+            spinbox = QtWidgets.QDoubleSpinBox()
+            spinbox.setRange(lo, hi)
+            spinbox.setDecimals(1)
+            spinbox.setSuffix("\u00b0")
+            spinbox.setValue(config.PARK_POSITION.get(joint, 0.0))
+            spinbox.valueChanged.connect(self._on_value_changed)
+            grid.addWidget(spinbox, i // 3, (i % 3) * 2 + 1)
+            self.spinboxes[joint] = spinbox
+
+        layout.addLayout(grid)
+
+        btn_layout = QtWidgets.QHBoxLayout()
+        self.capture_button = QtWidgets.QPushButton("Capture Current")
+        self.capture_button.setToolTip("Set park position to current joint angles")
+        self.capture_button.clicked.connect(self._capture_current)
+        btn_layout.addWidget(self.capture_button)
+
+        self.reset_button = QtWidgets.QPushButton("Reset to Default")
+        self.reset_button.clicked.connect(self._reset_to_default)
+        btn_layout.addWidget(self.reset_button)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+    def load_from_config(self):
+        self._loading = True
+        for joint, spinbox in self.spinboxes.items():
+            spinbox.setValue(config.PARK_POSITION.get(joint, 0.0))
+        self._loading = False
+
+    def _on_value_changed(self):
+        if not self._loading:
+            self._save()
+            self.position_changed.emit()
+
+    def _save(self):
+        data = {}
+        for joint, spinbox in self.spinboxes.items():
+            val = spinbox.value()
+            config.PARK_POSITION[joint] = val
+            data[joint] = val
+        try:
+            with open(PARK_POSITION_FILE, 'w') as f:
+                json.dump(data, f, indent=4)
+            logger.debug(f"Saved park position: {data}")
+        except Exception as e:
+            logger.error(f"Error saving park position: {e}")
+
+    def _capture_current(self):
+        gui = self._find_gui_instance()
+        if not gui:
+            logger.warning("Cannot capture: no GUI instance found")
+            return
+        self._loading = True
+        for joint in self.spinboxes:
+            spinbox_name = f'SpinBox{joint}'
+            if hasattr(gui, spinbox_name):
+                val = getattr(gui, spinbox_name).value()
+                self.spinboxes[joint].setValue(val)
+        self._loading = False
+        self._save()
+        self.position_changed.emit()
+
+    def _reset_to_default(self):
+        self._loading = True
+        defaults = {'Art1': 0.0, 'Art2': 90.0, 'Art3': -90.0,
+                     'Art4': 0.0, 'Art5': 0.0, 'Art6': 0.0}
+        for joint, spinbox in self.spinboxes.items():
+            spinbox.setValue(defaults.get(joint, 0.0))
+        self._loading = False
+        self._save()
+        self.position_changed.emit()
+
+    def _find_gui_instance(self):
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'gui_instance'):
+                return parent.gui_instance
+            parent = parent.parent()
+        return None
+
+
 class CalibrationPanel(QtWidgets.QWidget):
     """Main calibration panel with direction verification, gripper calibration, and DH parameters"""
 
@@ -720,6 +865,16 @@ class CalibrationPanel(QtWidgets.QWidget):
         # Add home position widget
         self.home_position = HomePositionWidget()
         scroll_layout.addWidget(self.home_position)
+
+        # Add separator before park position
+        separator4 = QtWidgets.QFrame()
+        separator4.setFrameShape(QtWidgets.QFrame.HLine)
+        separator4.setStyleSheet("background-color: #ccc; margin: 10px 0;")
+        scroll_layout.addWidget(separator4)
+
+        # Add park position widget
+        self.park_position = ParkPositionWidget()
+        scroll_layout.addWidget(self.park_position)
 
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)

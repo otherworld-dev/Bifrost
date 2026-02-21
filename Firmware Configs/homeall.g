@@ -6,6 +6,7 @@ M17                      ; Enable all steppers
 
 ; HOME X - Articulation 1
 G91                      ; relative positioning
+G1 H2 X15 F1800          ; back off from endstop area first
 G1 H1 X-360 F1800        ; move quickly to X axis endstop and stop there (first pass)
 G1 H2 X5 F6000           ; go back a few degrees
 G1 H1 X-360 F360         ; move slowly to X axis endstop once more (second pass)
@@ -14,17 +15,19 @@ G92 X0
 
 ; HOME Y - Articulation 2
 G91                      ; relative positioning
-G1 H1 Y180 F1800        ; move quickly to Y axis endstop and stop there (first pass)
-G1 H2 Y-5 F6000           ; go back a few degrees
-G1 H1 Y180 F360         ; move slowly to Y axis endstop once more (second pass)
+G1 H2 Y15 F1800          ; back off from endstop area first
+G1 H1 Y-180 F1800        ; move quickly to Y axis endstop and stop there (first pass)
+G1 H2 Y5 F6000           ; go back a few degrees
+G1 H1 Y-180 F360         ; move slowly to Y axis endstop once more (second pass)
 G90                      ; absolute positioning
 M206 Y90
 
 ; HOME Z - Articulation 3
 G91                      ; relative positioning
-G1 H1 Z-180 F1800        ; move quickly to Z axis endstop and stop there (first pass)
-G1 H2 Z5 F6000           ; go back a few degrees
-G1 H1 Z-180 F360         ; move slowly to Z axis endstop once more (second pass)
+G1 H2 Z-15 F1800         ; back off from endstop area first
+G1 H1 Z180 F1800         ; move quickly to Z axis endstop and stop there (first pass)
+G1 H2 Z-5 F6000          ; go back a few degrees
+G1 H1 Z180 F360          ; move slowly to Z axis endstop once more (second pass)
 G90                      ; absolute positioning
 M206 Z90
 

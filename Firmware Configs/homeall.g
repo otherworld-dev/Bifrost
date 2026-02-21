@@ -49,5 +49,5 @@ M564 H0 S0      ; disable limit enforcement
 G1 V-90 F3000
 M400
 G92 V0
-M564 H1 S1      ; re-enable limits
+M564 S0          ; restore config.g intent: no limit enforcement
 G90

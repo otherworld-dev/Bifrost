@@ -24,10 +24,8 @@ M569 P4 S1 T1.0:1.0:0.2:0.2                                              ; physi
 M569 P5 S1 T1.0:1.0:0.2:0.2                                              ; physical drive 5 goes forwards using A4988 driver timings
 M569 P6 S1 T1.0:1.0:0.2:0.2                                              ; physical drive 6 goes forwards using A4988 driver timings
 M584 X0 Y1:2 Z3 U4 V5 W6                                                 ; set drive mapping
-;M350 X16 Y16 Z16 U16 V16 W16 I1                                          ; configure microstepping with interpolation
-M350 X32 Y32 Z32 U32 V32 W32 I0                                          ; configure microstepping with interpolation
-;M92 X44.50 Y44.50 Z265.00 U17.55 V18.40 W18.40  
-M92 X89.00 Y89.00 Z530.00 U35.10 V36.80 W36.80                           ; set steps per mm
+M350 X16 Y16 Z16 U16 V16 W16 I1                                          ; configure microstepping with interpolation
+M92 X44.50 Y44.50 Z265.00 U17.55 V18.40 W18.40                            ; set steps per mm
 M566 X900.00 Y900.00 Z900.00 U900.00 V9000.00 W9000.00                   ; set maximum instantaneous speed changes (mm/min)
 M203 X2000.00 Y800.00 Z800.00 U2000.00 V5000.00 W5000.00                 ; set maximum speeds (mm/min)
 M201 X10.00 Y10.00 Z10.00 U10.00 V100.00 W100.00                         ; set accelerations (mm/s^2)
@@ -49,7 +47,7 @@ M574 Y1 S1 P"!PG_9"                                                      ; Y end
 M574 Z1 S1 P"!PG_10"                                                     ; Z endstop on STOP2 (J31) - inverted
 M574 U1 S1 P"!PG_11"                                                     ; U endstop on STOP3 (J33) - inverted
 M574 V1 S1 P"!PG_12"                                                      ; V endstop on STOP4 (J28)
-M574 W1 S1 P"PG_13"                                                      ; W endstop on STOP5 (J30)
+M574 W1 S1 P"!PG_13"                                                     ; W endstop on STOP5 (J30) - inverted (no physical switch)
 
 ; Z-Probe
 M558 P0 H5 F120 T6000                                                    ; disable Z probe but set dive height, probe speed and travel speed

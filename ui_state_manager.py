@@ -279,14 +279,14 @@ class UIStateManager:
 
         if is_homing:
             self._apply_enabled('HomeButton', False)
-            self._apply_text('HomeButton', 'Homing...')
+            self._apply_text('HomeButton', 'Mastering...')
             changes['widgets'].append(('HomeButton', 'enabled', False))
-            changes['widgets'].append(('HomeButton', 'text', 'Homing...'))
+            changes['widgets'].append(('HomeButton', 'text', 'Mastering...'))
         else:
             self._apply_enabled('HomeButton', True)
-            self._apply_text('HomeButton', 'Home')
+            self._apply_text('HomeButton', 'Master')
             changes['widgets'].append(('HomeButton', 'enabled', True))
-            changes['widgets'].append(('HomeButton', 'text', 'Home'))
+            changes['widgets'].append(('HomeButton', 'text', 'Master'))
 
         logger.debug(f"Homing state updated: {is_homing}")
         return changes

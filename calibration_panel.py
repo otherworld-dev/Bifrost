@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # DH parameters file path
 DH_PARAMS_FILE = Path(__file__).parent / 'dh_parameters.json'
 GRIPPER_CALIBRATION_FILE = Path(__file__).parent / 'gripper_calibration.json'
+HOME_POSITION_FILE = Path(__file__).parent / 'home_position.json'
 
 
 def load_gripper_calibration_on_startup():
@@ -38,6 +39,25 @@ def load_gripper_calibration_on_startup():
             logger.debug("No gripper calibration file found, using defaults")
     except Exception as e:
         logger.error(f"Error loading gripper calibration on startup: {e}")
+
+
+def load_home_position_on_startup():
+    """
+    Load home position from file and apply to config module.
+    Call this at application startup.
+    """
+    try:
+        if HOME_POSITION_FILE.exists():
+            with open(HOME_POSITION_FILE, 'r') as f:
+                data = json.load(f)
+            for joint in ('Art1', 'Art2', 'Art3', 'Art4', 'Art5', 'Art6'):
+                if joint in data:
+                    config.HOME_POSITION[joint] = data[joint]
+            logger.info(f"Loaded home position: {config.HOME_POSITION}")
+        else:
+            logger.debug("No home position file found, using defaults")
+    except Exception as e:
+        logger.error(f"Error loading home position on startup: {e}")
 
 
 class JointCalibrationWidget(QtWidgets.QWidget):
@@ -482,6 +502,135 @@ class DHParametersWidget(QtWidgets.QWidget):
             self._loading = False
 
 
+class HomePositionWidget(QtWidgets.QWidget):
+    """Widget for setting the software home position (joint angles)"""
+
+    position_changed = QtCore.pyqtSignal()
+
+    # Joint limits matching the main GUI spinboxes
+    JOINT_LIMITS = {
+        'Art1': (-97, 97),
+        'Art2': (-90, 90),
+        'Art3': (-90, 90),
+        'Art4': (-180, 180),
+        'Art5': (-90, 90),
+        'Art6': (-180, 180),
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.spinboxes = {}
+        self._loading = False
+        self.setup_ui()
+        self.load_from_config()
+
+    def setup_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        header = QtWidgets.QLabel("<b>Home Position</b>")
+        header.setStyleSheet("font-size: 14px;")
+        layout.addWidget(header)
+
+        desc = QtWidgets.QLabel(
+            "Joint angles the robot moves to when the Home button is pressed."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #666; margin-bottom: 4px;")
+        layout.addWidget(desc)
+
+        # Grid of joint spinboxes
+        grid = QtWidgets.QGridLayout()
+        for i, (joint, (lo, hi)) in enumerate(self.JOINT_LIMITS.items()):
+            label = QtWidgets.QLabel(f"{joint}:")
+            label.setFixedWidth(40)
+            grid.addWidget(label, i // 3, (i % 3) * 2)
+
+            spinbox = QtWidgets.QDoubleSpinBox()
+            spinbox.setRange(lo, hi)
+            spinbox.setDecimals(1)
+            spinbox.setSuffix("°")
+            spinbox.setValue(config.HOME_POSITION.get(joint, 0.0))
+            spinbox.valueChanged.connect(self._on_value_changed)
+            grid.addWidget(spinbox, i // 3, (i % 3) * 2 + 1)
+            self.spinboxes[joint] = spinbox
+
+        layout.addLayout(grid)
+
+        # Buttons
+        btn_layout = QtWidgets.QHBoxLayout()
+        self.capture_button = QtWidgets.QPushButton("Capture Current")
+        self.capture_button.setToolTip("Set home position to current joint angles")
+        self.capture_button.clicked.connect(self._capture_current)
+        btn_layout.addWidget(self.capture_button)
+
+        self.reset_button = QtWidgets.QPushButton("Reset to Zero")
+        self.reset_button.clicked.connect(self._reset_to_zero)
+        btn_layout.addWidget(self.reset_button)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+    def load_from_config(self):
+        """Load values from config.HOME_POSITION into spinboxes"""
+        self._loading = True
+        for joint, spinbox in self.spinboxes.items():
+            spinbox.setValue(config.HOME_POSITION.get(joint, 0.0))
+        self._loading = False
+
+    def _on_value_changed(self):
+        if not self._loading:
+            self._save()
+            self.position_changed.emit()
+
+    def _save(self):
+        """Save current spinbox values to config and file"""
+        data = {}
+        for joint, spinbox in self.spinboxes.items():
+            val = spinbox.value()
+            config.HOME_POSITION[joint] = val
+            data[joint] = val
+        try:
+            with open(HOME_POSITION_FILE, 'w') as f:
+                json.dump(data, f, indent=4)
+            logger.debug(f"Saved home position: {data}")
+        except Exception as e:
+            logger.error(f"Error saving home position: {e}")
+
+    def _capture_current(self):
+        """Capture current joint angles from the main GUI spinboxes"""
+        gui = self._find_gui_instance()
+        if not gui:
+            logger.warning("Cannot capture: no GUI instance found")
+            return
+        self._loading = True
+        for joint in self.spinboxes:
+            spinbox_name = f'SpinBox{joint}'
+            if hasattr(gui, spinbox_name):
+                val = getattr(gui, spinbox_name).value()
+                self.spinboxes[joint].setValue(val)
+        self._loading = False
+        self._save()
+        self.position_changed.emit()
+
+    def _reset_to_zero(self):
+        self._loading = True
+        for spinbox in self.spinboxes.values():
+            spinbox.setValue(0.0)
+        self._loading = False
+        self._save()
+        self.position_changed.emit()
+
+    def _find_gui_instance(self):
+        """Walk up the parent chain to find the CalibrationPanel's gui_instance"""
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'gui_instance'):
+                return parent.gui_instance
+            parent = parent.parent()
+        return None
+
+
 class CalibrationPanel(QtWidgets.QWidget):
     """Main calibration panel with direction verification, gripper calibration, and DH parameters"""
 
@@ -561,6 +710,16 @@ class CalibrationPanel(QtWidgets.QWidget):
         # Add DH parameters widget
         self.dh_parameters = DHParametersWidget()
         scroll_layout.addWidget(self.dh_parameters)
+
+        # Add separator before home position
+        separator3 = QtWidgets.QFrame()
+        separator3.setFrameShape(QtWidgets.QFrame.HLine)
+        separator3.setStyleSheet("background-color: #ccc; margin: 10px 0;")
+        scroll_layout.addWidget(separator3)
+
+        # Add home position widget
+        self.home_position = HomePositionWidget()
+        scroll_layout.addWidget(self.home_position)
 
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)

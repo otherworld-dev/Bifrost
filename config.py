@@ -120,5 +120,13 @@ DEFAULT_TOOL_OFFSET_Z = 67.15  # Default TCP offset (from DH parameter L4)
 FRAME_AXIS_LENGTH = 50  # mm - length of frame axes in 3D visualisation
 FRAME_AXIS_LENGTH_TOOL = 35  # mm - shorter axes for tool frames
 
+# ========== Home Position ==========
+# Software-defined home position (joint angles in degrees)
+# Robot moves here when "Home" button is pressed (distinct from Master/G28 endstop homing)
+HOME_POSITION = {
+    'Art1': 0.0, 'Art2': 0.0, 'Art3': 0.0,
+    'Art4': 0.0, 'Art5': 0.0, 'Art6': 0.0,
+}
+
 # ========== Simulation Mode ==========
 USE_SIMULATION_MODE = False  # Set to True to use simulated robot (no hardware required)

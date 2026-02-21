@@ -36,7 +36,7 @@ from ui_state_manager import UIStateManager, ConnectionState as UIConnectionStat
 from serial_response_router import SerialResponseRouter
 from visualization_controller import VisualizationController
 from position_history_manager import PositionHistoryManager
-from calibration_panel import load_gripper_calibration_on_startup
+from calibration_panel import load_gripper_calibration_on_startup, load_home_position_on_startup
 from config_g_manager import read_m569_directions, DEFAULT_CONFIG_G_PATH
 from coordinate_frames import FrameManager, pose_to_xyz_rpy
 import forward_kinematics as fk
@@ -61,8 +61,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load gripper calibration from file (if exists) before GUI starts
+# Load calibration from files (if they exist) before GUI starts
 load_gripper_calibration_on_startup()
+load_home_position_on_startup()
 
 # This application is designed for RepRapFirmware (RRF) only
 # All parsing patterns are now in parsing_patterns.py module
@@ -214,7 +215,7 @@ class BifrostGUI(Ui_MainWindow):
             self.setupModern3DVisualization()
 
         self.HomeButton.pressed.connect(self.sendHomingCycleCommand)
-        self.ZeroPositionButton.pressed.connect(self.sendZeroPositionCommand)
+        self.ZeroPositionButton.pressed.connect(self.sendHomePositionCommand)
         self.EmergencyStopButton.pressed.connect(self.sendEmergencyStopCommand)
 
         # Movement type now controlled by axis column - connect its signal
@@ -642,11 +643,22 @@ class BifrostGUI(Ui_MainWindow):
             self.is_homing = True
             self.ui_state_manager.update_homing_state(True)
 
-    def sendZeroPositionCommand(self):
-        """Send command to move all axes to zero position"""
+    def sendHomePositionCommand(self):
+        """Send command to move all axes to the calibrated home position"""
+        hp = config.HOME_POSITION
+        art5 = hp.get('Art5', 0.0)
+        art6 = hp.get('Art6', 0.0)
+        motor_v, motor_w = diff_kin.DifferentialKinematics.joint_to_motor(art5, art6)
         command = CommandBuilder.build_axis_command(
             "G0",
-            {"X": 0, "Y": 0, "Z": 0, "U": 0, "V": 0, "W": 0}
+            {
+                "X": hp.get('Art1', 0.0),
+                "Y": hp.get('Art2', 0.0),
+                "Z": hp.get('Art3', 0.0),
+                "U": hp.get('Art4', 0.0),
+                "V": motor_v,
+                "W": motor_w,
+            }
         )
         self.command_sender.send_if_connected(command)
 

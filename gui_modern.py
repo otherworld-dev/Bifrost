@@ -738,7 +738,7 @@ class AxisControlColumn(QFrame):
         quick_layout.addWidget(quick_heading)
 
         # Home button
-        self.HomeButton = QPushButton("🏠 Home")
+        self.HomeButton = QPushButton("🏠 Master")
         self.HomeButton.setFixedHeight(24)
         self.HomeButton.setStyleSheet("""
             QPushButton {
@@ -751,11 +751,11 @@ class AxisControlColumn(QFrame):
                 background: #e8f4e8;
             }
         """)
-        self.HomeButton.setToolTip("Home all axes (G28)")
+        self.HomeButton.setToolTip("Master all axes (G28)")
         quick_layout.addWidget(self.HomeButton)
 
-        # Zero button
-        self.ZeroPositionButton = QPushButton("Zero")
+        # Home position button
+        self.ZeroPositionButton = QPushButton("Home")
         self.ZeroPositionButton.setFixedHeight(24)
         self.ZeroPositionButton.setStyleSheet("""
             QPushButton {
@@ -768,7 +768,7 @@ class AxisControlColumn(QFrame):
                 background: #e8e8f4;
             }
         """)
-        self.ZeroPositionButton.setToolTip("Zero all positions (G92)")
+        self.ZeroPositionButton.setToolTip("Go to home position")
         quick_layout.addWidget(self.ZeroPositionButton)
 
         # Jog mode checkbox
@@ -1148,12 +1148,12 @@ class JogModePanel(QFrame):
         quick_group = QGroupBox("Quick Commands")
         quick_layout = QVBoxLayout(quick_group)
 
-        self.HomeButton = QPushButton("🏠 Home All Axes")
+        self.HomeButton = QPushButton("🏠 Master All Axes")
         self.HomeButton.setMinimumHeight(40)
         self.HomeButton.setMinimumWidth(200)
         quick_layout.addWidget(self.HomeButton)
 
-        self.ZeroPositionButton = QPushButton("Zero All Positions")
+        self.ZeroPositionButton = QPushButton("Home Position")
         self.ZeroPositionButton.setMinimumHeight(40)
         self.ZeroPositionButton.setMinimumWidth(200)
         quick_layout.addWidget(self.ZeroPositionButton)
@@ -1792,7 +1792,7 @@ class TerminalModePanel(QFrame):
         self.QuickM119Button = QPushButton("M119 (Endstops)")
         quick_layout.addWidget(self.QuickM119Button)
 
-        self.QuickG28Button = QPushButton("G28 (Home)")
+        self.QuickG28Button = QPushButton("G28 (Master)")
         quick_layout.addWidget(self.QuickG28Button)
 
         self.QuickG92Button = QPushButton("G92 (Set Zero)")

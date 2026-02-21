@@ -239,6 +239,7 @@ class FrameManagementPanel(QFrame):
         self.tool_table.setHorizontalHeaderLabels(["Name", "Z Offset", "Description", ""])
         self.tool_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tool_table.setMaximumHeight(120)
+        self.tool_table.cellChanged.connect(self._on_tool_table_edited)
         tool_layout.addWidget(self.tool_table)
 
         # Add tool section
@@ -255,9 +256,12 @@ class FrameManagementPanel(QFrame):
         self.tool_z_spin.setMaximumWidth(100)
         add_tool_layout.addWidget(self.tool_z_spin)
 
-        self.btn_add_tool = QPushButton("Add Tool")
+        self.btn_add_tool = QPushButton("Save Tool")
         self.btn_add_tool.clicked.connect(self._add_tool)
         add_tool_layout.addWidget(self.btn_add_tool)
+
+        # Live-update active tool when Z offset changes
+        self.tool_z_spin.valueChanged.connect(self._on_tool_z_changed)
 
         add_tool_layout.addStretch()
         tool_layout.addLayout(add_tool_layout)
@@ -364,6 +368,7 @@ class FrameManagementPanel(QFrame):
         if not self.frame_controller:
             return
 
+        self.tool_table.blockSignals(True)
         tools = self.frame_controller.get_tools()
         self.tool_table.setRowCount(len(tools))
 
@@ -380,6 +385,7 @@ class FrameManagementPanel(QFrame):
                     btn = QPushButton("Delete")
                     btn.clicked.connect(lambda checked, n=name: self._delete_tool(n))
                     self.tool_table.setCellWidget(row, 3, btn)
+        self.tool_table.blockSignals(False)
 
     def _on_frames_updated(self, frames: List[str]):
         """Callback when frames list changes"""
@@ -436,9 +442,16 @@ class FrameManagementPanel(QFrame):
             self.frame_controller.select_frame(frame_name)
 
     def _on_tool_selected(self, tool_name: str):
-        """Handle tool selection change"""
+        """Handle tool selection change — select and populate edit fields."""
         if self.frame_controller and tool_name:
             self.frame_controller.select_tool(tool_name)
+            # Populate edit fields with selected tool's values
+            info = self.frame_controller.get_frame_info(tool_name)
+            if info:
+                self._updating_tool = True
+                self.tool_name_input.setText(tool_name)
+                self.tool_z_spin.setValue(info['position'][2])
+                self._updating_tool = False
 
     def _start_workpiece_teaching(self):
         """Start teaching a new workpiece frame"""
@@ -493,8 +506,53 @@ class FrameManagementPanel(QFrame):
             if reply == QMessageBox.Yes:
                 self.frame_controller.delete_frame(name)
 
+    def _on_tool_table_edited(self, row: int, col: int):
+        """Handle in-place edit of tool table cells (Z Offset column)."""
+        if col != 1:  # Only handle Z Offset column
+            return
+        if not self.frame_controller:
+            return
+        if getattr(self, '_updating_tool', False):
+            return
+        name_item = self.tool_table.item(row, 0)
+        value_item = self.tool_table.item(row, 1)
+        if not name_item or not value_item:
+            return
+        name = name_item.text()
+        try:
+            z_offset = float(value_item.text())
+        except ValueError:
+            return
+        self._updating_tool = True
+        try:
+            self.frame_controller.delete_frame(name)
+            self.frame_controller.create_tool_frame(name, offset_z=z_offset)
+            self.frame_controller.select_tool(name)
+        finally:
+            self._updating_tool = False
+
+    def _on_tool_z_changed(self, value: float):
+        """Live-update the active tool when Z offset spinbox changes."""
+        if not self.frame_controller:
+            return
+        if getattr(self, '_updating_tool', False):
+            return
+        name = self.tool_name_input.text().strip()
+        if not name or not self.frame_controller.frame_manager.frame_exists(name):
+            return
+        # Only live-update if this is the currently active tool
+        if name != self.frame_controller.get_active_tool():
+            return
+        self._updating_tool = True
+        try:
+            self.frame_controller.delete_frame(name)
+            self.frame_controller.create_tool_frame(name, offset_z=value)
+            self.frame_controller.select_tool(name)
+        finally:
+            self._updating_tool = False
+
     def _add_tool(self):
-        """Add new tool frame"""
+        """Add or update a tool frame"""
         name = self.tool_name_input.text().strip()
         if not name:
             QMessageBox.warning(self, "Error", "Please enter a tool name")
@@ -503,10 +561,16 @@ class FrameManagementPanel(QFrame):
         z_offset = self.tool_z_spin.value()
 
         if self.frame_controller:
+            # If tool already exists, delete it first (update semantics)
+            if self.frame_controller.frame_manager.frame_exists(name):
+                self.frame_controller.delete_frame(name)
+
             success = self.frame_controller.create_tool_frame(
                 name, offset_z=z_offset
             )
             if success:
+                # Auto-select the created/updated tool
+                self.frame_controller.select_tool(name)
                 self.tool_name_input.clear()
                 self.tool_z_spin.setValue(0)
             else:

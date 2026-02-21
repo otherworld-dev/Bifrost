@@ -584,6 +584,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.grid_label_items = []  # Coordinate labels on grid
         self.base_frame_items = []
         self.tcp_frame_items = []
+        self.tool_tip_items = []  # GL items for tool tip frame visualization
         self.workspace_item = None
         self.tool_direction_item = None
         self.base_front_item = None
@@ -896,6 +897,15 @@ class Robot3DCanvas(gl.GLViewWidget):
             if item is not None:
                 self.removeItem(item)
         self.tcp_frame_items = []
+
+        # Clear tool tip items
+        for item in self.tool_tip_items:
+            if item is not None:
+                try:
+                    self.removeItem(item)
+                except Exception:
+                    pass
+        self.tool_tip_items = []
 
         # Reset references
         self.robot_arm_item = None
@@ -1480,8 +1490,7 @@ class Robot3DCanvas(gl.GLViewWidget):
 
     def draw_tcp_frame(self, q1, q2, q3, q4, q5, q6, length=40):
         """
-        Draw coordinate frame at TCP showing end effector orientation.
-        Applies gripper calibration rotation to match the actual gripper STL orientation.
+        Draw coordinate frame at TCP flange showing end effector orientation.
 
         Args:
             q1-q6: Joint angles in degrees
@@ -1493,51 +1502,88 @@ class Robot3DCanvas(gl.GLViewWidget):
                 self.removeItem(item)
         self.tcp_frame_items = []
 
-        # Get all joint transforms, apply tool offset and base-in-world
+        # Get all joint transforms and apply base-in-world (flange only, no tool offset)
         raw_transforms = fk.compute_all_joint_transforms(q1, q2, q3, q4, q5, q6)
-        tcp_world = self._base_world_transform @ raw_transforms[6] @ self._tool_offset
+        B = self._base_world_transform
+        flange_world = B @ raw_transforms[6]
 
-        # Use tool tip position and orientation
-        tcp_pos = tcp_world[0:3, 3]
-        tcp_rot = tcp_world[0:3, 0:3]
+        flange_pos = flange_world[0:3, 3]
+        flange_rot = flange_world[0:3, 0:3]
 
-        # Create frame axes (X, Y, Z in TCP frame)
-        x_axis_tcp = tcp_rot @ np.array([length, 0, 0])
-        y_axis_tcp = tcp_rot @ np.array([0, length, 0])
-        z_axis_tcp = tcp_rot @ np.array([0, 0, length])
+        # Create frame axes (X, Y, Z at flange)
+        for axis_vec, color in [
+            (np.array([length, 0, 0]), (1, 0, 0, 1.0)),    # X - Red
+            (np.array([0, length, 0]), (0, 1, 0, 1.0)),    # Y - Green
+            (np.array([0, 0, length]), (0, 0, 1, 1.0)),    # Z - Blue
+        ]:
+            direction = flange_rot @ axis_vec
+            points = np.array([flange_pos, flange_pos + direction])
+            line = gl.GLLinePlotItem(
+                pos=points,
+                color=color,
+                width=4,
+                antialias=True
+            )
+            self.addItem(line)
+            self.tcp_frame_items.append(line)
 
-        # TCP X axis - Red (thicker for clarity)
-        x_points = np.array([tcp_pos, tcp_pos + x_axis_tcp])
-        x_axis = gl.GLLinePlotItem(
-            pos=x_points,
-            color=(1, 0, 0, 1.0),
-            width=4,
+        # Draw tool tip frame if tool offset is non-identity
+        self._draw_tool_tip_frame(flange_world, length)
+
+    def _draw_tool_tip_frame(self, flange_world: np.ndarray, length: float = 40):
+        """
+        Draw tool tip coordinate frame and a connecting stem from the flange.
+        Only drawn when the active tool offset is non-identity.
+
+        Args:
+            flange_world: 4x4 flange transform in world coordinates
+            length: Length of each axis arrow in mm
+        """
+        # Remove old tool tip items
+        for item in self.tool_tip_items:
+            if item is not None:
+                try:
+                    self.removeItem(item)
+                except Exception:
+                    pass
+        self.tool_tip_items = []
+
+        T = self._tool_offset
+        if np.allclose(T, np.eye(4)):
+            return  # No tool offset, nothing to draw
+
+        tool_tip_world = flange_world @ T
+        tip_pos = tool_tip_world[:3, 3]
+        tip_rot = tool_tip_world[:3, :3]
+        flange_pos = flange_world[:3, 3]
+
+        # Stem line from flange to tool tip (dashed look via white)
+        stem = gl.GLLinePlotItem(
+            pos=np.array([flange_pos, tip_pos]),
+            color=(0.8, 0.8, 0.0, 0.8),  # Yellow stem
+            width=3,
             antialias=True
         )
-        self.addItem(x_axis)
-        self.tcp_frame_items.append(x_axis)
+        self.addItem(stem)
+        self.tool_tip_items.append(stem)
 
-        # TCP Y axis - Green (thicker for clarity)
-        y_points = np.array([tcp_pos, tcp_pos + y_axis_tcp])
-        y_axis = gl.GLLinePlotItem(
-            pos=y_points,
-            color=(0, 1, 0, 1.0),
-            width=4,
-            antialias=True
-        )
-        self.addItem(y_axis)
-        self.tcp_frame_items.append(y_axis)
-
-        # TCP Z axis - Blue (thicker for clarity)
-        z_points = np.array([tcp_pos, tcp_pos + z_axis_tcp])
-        z_axis = gl.GLLinePlotItem(
-            pos=z_points,
-            color=(0, 0, 1, 1.0),
-            width=4,
-            antialias=True
-        )
-        self.addItem(z_axis)
-        self.tcp_frame_items.append(z_axis)
+        # Tool tip frame axes (thinner, lighter colours to distinguish from flange)
+        tip_length = length * 0.7
+        for axis_vec, color in [
+            (np.array([tip_length, 0, 0]), (1.0, 0.4, 0.4, 0.9)),  # Light red
+            (np.array([0, tip_length, 0]), (0.4, 1.0, 0.4, 0.9)),  # Light green
+            (np.array([0, 0, tip_length]), (0.4, 0.4, 1.0, 0.9)),  # Light blue
+        ]:
+            direction = tip_rot @ axis_vec
+            points = np.array([tip_pos, tip_pos + direction])
+            line = gl.GLLinePlotItem(
+                pos=points,
+                color=color,
+                width=2,
+                antialias=True
+            )
+            self.addItem(line)
+            self.tool_tip_items.append(line)
 
     def draw_joint_frames(self, q1, q2, q3, q4, q5, q6, length=30):
         """Draw coordinate frames at each joint origin."""

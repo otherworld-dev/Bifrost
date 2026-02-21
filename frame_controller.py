@@ -466,6 +466,9 @@ class FrameController:
         """Notify that tools list changed."""
         if self.on_tools_updated:
             self.on_tools_updated(self.get_tools())
+        # Re-sync active tool data (offset may have changed due to create/delete)
+        if self.on_tool_changed:
+            self.on_tool_changed(self.get_active_tool())
 
     def _notify_workpieces_updated(self) -> None:
         """Notify that workpieces list changed."""

@@ -1282,7 +1282,12 @@ class ControlModePanel(QFrame):
         self.IKInputSpinBoxY = self._make_spinbox(" mm", -999, 999)
         self.IKInputSpinBoxZ = self._make_spinbox(" mm", -999, 999)
 
+        pos_layout.setColumnStretch(2, 0)  # minus btn: fixed
+        pos_layout.setColumnStretch(3, 0)  # plus btn: fixed
+
+        _JOG_BTN_STYLE = "font-size: 10pt; font-weight: bold; padding: 0px;"
         axis_colors = {"X": "#e04040", "Y": "#40a040", "Z": "#4070d0"}
+        self.ik_jog_buttons = {}  # {('X',+1): btn, ('X',-1): btn, ...}
         for row, (axis, spinbox) in enumerate([
             ("X", self.IKInputSpinBoxX), ("Y", self.IKInputSpinBoxY),
             ("Z", self.IKInputSpinBoxZ)]):
@@ -1292,8 +1297,20 @@ class ControlModePanel(QFrame):
             lbl.setFixedWidth(24)
             lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             spinbox.setStyleSheet(self._SPINBOX_STYLE)
+
+            minus_btn = QPushButton("-")
+            minus_btn.setFixedSize(24, 24)
+            minus_btn.setStyleSheet(_JOG_BTN_STYLE)
+            plus_btn = QPushButton("+")
+            plus_btn.setFixedSize(24, 24)
+            plus_btn.setStyleSheet(_JOG_BTN_STYLE)
+            self.ik_jog_buttons[(axis, -1)] = minus_btn
+            self.ik_jog_buttons[(axis, +1)] = plus_btn
+
             pos_layout.addWidget(lbl, row, 0)
             pos_layout.addWidget(spinbox, row, 1)
+            pos_layout.addWidget(minus_btn, row, 2)
+            pos_layout.addWidget(plus_btn, row, 3)
 
         cart_outer.addWidget(pos_group)
 
@@ -1305,7 +1322,9 @@ class ControlModePanel(QFrame):
         ori_layout.setHorizontalSpacing(6)
         ori_layout.setColumnStretch(0, 0)  # label: fixed
         ori_layout.setColumnStretch(1, 1)  # spinbox: stretch
-        ori_layout.setColumnStretch(2, 0)  # hint: fixed
+        ori_layout.setColumnStretch(2, 0)  # minus btn: fixed
+        ori_layout.setColumnStretch(3, 0)  # plus btn: fixed
+        ori_layout.setColumnStretch(4, 0)  # hint: fixed
 
         self.IKInputSpinBoxA = self._make_spinbox(" \u00b0", -180, 180)
         self.IKInputSpinBoxB = self._make_spinbox(" \u00b0", -180, 180)
@@ -1323,9 +1342,21 @@ class ControlModePanel(QFrame):
             hint = QLabel(ori_labels[axis])
             hint.setStyleSheet("color: #999; font-size: 8pt;")
             spinbox.setStyleSheet(self._SPINBOX_STYLE)
+
+            minus_btn = QPushButton("-")
+            minus_btn.setFixedSize(24, 24)
+            minus_btn.setStyleSheet(_JOG_BTN_STYLE)
+            plus_btn = QPushButton("+")
+            plus_btn.setFixedSize(24, 24)
+            plus_btn.setStyleSheet(_JOG_BTN_STYLE)
+            self.ik_jog_buttons[(axis, -1)] = minus_btn
+            self.ik_jog_buttons[(axis, +1)] = plus_btn
+
             ori_layout.addWidget(lbl, row, 0)
             ori_layout.addWidget(spinbox, row, 1)
-            ori_layout.addWidget(hint, row, 2)
+            ori_layout.addWidget(minus_btn, row, 2)
+            ori_layout.addWidget(plus_btn, row, 3)
+            ori_layout.addWidget(hint, row, 4)
 
         cart_outer.addWidget(ori_group)
         self.target_stack.addWidget(cartesian_page)

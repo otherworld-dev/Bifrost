@@ -366,6 +366,21 @@ class BifrostGUI(Ui_MainWindow):
         self.IKInputSpinBoxB.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
         self.IKInputSpinBoxC.valueChanged.connect(lambda: self.ik_calc_timer.start(50))
 
+        # IK jog buttons: +/- for each axis
+        for axis in ('X', 'Y', 'Z'):
+            self.control_panel.ik_jog_buttons[(axis, -1)].pressed.connect(
+                lambda a=axis: self.adjustIKValue(a, -self.axis_column.get_step()))
+            self.control_panel.ik_jog_buttons[(axis, +1)].pressed.connect(
+                lambda a=axis: self.adjustIKValue(a, self.axis_column.get_step()))
+        ori_spinbox_map = {'A': self.IKInputSpinBoxA, 'B': self.IKInputSpinBoxB, 'C': self.IKInputSpinBoxC}
+        for axis in ('A', 'B', 'C'):
+            self.control_panel.ik_jog_buttons[(axis, -1)].pressed.connect(
+                lambda a=axis: ori_spinbox_map[a].setValue(
+                    ori_spinbox_map[a].value() - self.axis_column.get_step()))
+            self.control_panel.ik_jog_buttons[(axis, +1)].pressed.connect(
+                lambda a=axis: ori_spinbox_map[a].setValue(
+                    ori_spinbox_map[a].value() + self.axis_column.get_step()))
+
         # Control panel: mode toggle, action buttons
         self._control_mode = "cartesian"  # Default mode
         self.control_panel.controlModeChanged.connect(self._onControlModeChanged)
@@ -1124,8 +1139,16 @@ class BifrostGUI(Ui_MainWindow):
         b = self.IKInputSpinBoxB.value()  # Pitch (degrees)
         c = self.IKInputSpinBoxC.value()  # Yaw (degrees)
 
-        # Delegate to controller - it will update GUI via callbacks
-        self.ik_controller.calculate_and_update(x, y, z, roll_deg=a, pitch_deg=b, yaw_deg=c)
+        # Pass current joint config so solver picks nearest branch
+        current_joints = [
+            self.SpinBoxArt1.value(), self.SpinBoxArt2.value(),
+            self.SpinBoxArt3.value(), self.SpinBoxArt4.value(),
+            self.SpinBoxArt5.value(), self.SpinBoxArt6.value()
+        ]
+        self.ik_controller.calculate_and_update(
+            x, y, z, roll_deg=a, pitch_deg=b, yaw_deg=c,
+            current_joints=current_joints
+        )
 
     def adjustIKValue(self, axis, delta):
         """
@@ -1249,8 +1272,14 @@ class BifrostGUI(Ui_MainWindow):
             b = self.IKInputSpinBoxB.value()
             c = self.IKInputSpinBoxC.value()
 
+            current_joints = [
+                self.SpinBoxArt1.value(), self.SpinBoxArt2.value(),
+                self.SpinBoxArt3.value(), self.SpinBoxArt4.value(),
+                self.SpinBoxArt5.value(), self.SpinBoxArt6.value()
+            ]
             result = self.ik_controller.calculate_and_update(
-                x, y, z, roll_deg=a, pitch_deg=b, yaw_deg=c
+                x, y, z, roll_deg=a, pitch_deg=b, yaw_deg=c,
+                current_joints=current_joints
             )
             if not result or not result.valid:
                 logger.warning("Go To: IK solution invalid, move not executed")

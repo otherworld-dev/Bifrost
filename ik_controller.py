@@ -165,7 +165,7 @@ class IKController:
 
         return IKTarget(x=x, y=y, z=z, roll=roll, pitch=pitch, yaw=yaw)
 
-    def calculate_ik(self, target: IKTarget) -> IKSolutionResult:
+    def calculate_ik(self, target: IKTarget, current_joints: Optional[list] = None) -> IKSolutionResult:
         """
         Calculate 6-DOF inverse kinematics for target position.
 
@@ -174,6 +174,7 @@ class IKController:
 
         Args:
             target: IKTarget with position and orientation (in active frame)
+            current_joints: Optional [q1..q6] in degrees for nearest-solution selection
 
         Returns:
             IKSolutionResult with joint angles or error
@@ -188,7 +189,8 @@ class IKController:
         # Solve full 6-DOF IK in base frame
         solution = ik.solve_ik_full(
             base_target.x, base_target.y, base_target.z,
-            roll=base_target.roll, pitch=base_target.pitch, yaw=base_target.yaw
+            roll=base_target.roll, pitch=base_target.pitch, yaw=base_target.yaw,
+            current_joints=current_joints
         )
 
         # Convert to our result type
@@ -219,7 +221,8 @@ class IKController:
 
     def calculate_and_update(self, x: float, y: float, z: float,
                              roll_deg: float = 0.0, pitch_deg: float = -90.0,
-                             yaw_deg: float = 0.0) -> IKSolutionResult:
+                             yaw_deg: float = 0.0,
+                             current_joints: Optional[list] = None) -> IKSolutionResult:
         """
         Calculate IK and update all GUI elements via callbacks.
 
@@ -228,6 +231,7 @@ class IKController:
         Args:
             x, y, z: Target position in mm
             roll_deg, pitch_deg, yaw_deg: Target orientation in degrees
+            current_joints: Optional [q1..q6] in degrees for nearest-solution selection
 
         Returns:
             IKSolutionResult with joint angles or error
@@ -238,7 +242,7 @@ class IKController:
             pitch=np.radians(pitch_deg),
             yaw=np.radians(yaw_deg)
         )
-        result = self.calculate_ik(target)
+        result = self.calculate_ik(target, current_joints=current_joints)
 
         # Update GUI via callbacks
         self._update_gui(result)

@@ -48,6 +48,25 @@ def check_joint_limits(q1, q2, q3, q4, q5, q6):
     return True, ""
 
 
+def _joint_distance(solution: 'IKSolution', current_joints: list) -> float:
+    """
+    Weighted joint-space distance between an IK solution and current configuration.
+
+    Joints 1-3 weighted higher (large links = large Cartesian displacement per degree).
+    Joints 4/6 (±180° range) use angular wrapping.
+    """
+    weights = [3.0, 3.0, 3.0, 1.0, 1.0, 1.0]
+    sol_angles = [solution.q1, solution.q2, solution.q3,
+                  solution.q4, solution.q5, solution.q6]
+    dist = 0.0
+    for i in range(6):
+        diff = sol_angles[i] - current_joints[i]
+        if i in (3, 5):  # q4, q6 have ±180° range
+            diff = (diff + 180) % 360 - 180
+        dist += weights[i] * diff ** 2
+    return dist
+
+
 class IKSolution:
     """Container for inverse kinematics solution"""
     def __init__(self, q1: float = 0, q2: float = 0, q3: float = 0,
@@ -163,7 +182,7 @@ def _solve_position_joints(p_wx: float, p_wy: float, p_wz: float,
     return q1_deg, q2_deg, q3_deg, True, ""
 
 
-def _extract_wrist_angles(R36: np.ndarray) -> Tuple[float, float, float]:
+def _extract_wrist_angles(R36: np.ndarray, wrist_flip: bool = False) -> Tuple[float, float, float]:
     """
     Extract q4, q5, q6 from the wrist rotation matrix R_3_6.
 
@@ -173,6 +192,10 @@ def _extract_wrist_angles(R36: np.ndarray) -> Tuple[float, float, float]:
         R36[1][2] = sin(q4)*cos(q5)
         R36[2][0] = -cos(q5)*cos(q6)
         R36[2][1] = cos(q5)*sin(q6)
+
+    Args:
+        R36: 3x3 wrist rotation matrix
+        wrist_flip: If True, use negative cos_q5 root (alternate wrist config)
 
     Returns:
         (q4_deg, q5_deg, q6_deg)
@@ -185,7 +208,9 @@ def _extract_wrist_angles(R36: np.ndarray) -> Tuple[float, float, float]:
 
     # q5 from R36[2][2] = -sin(q5)
     sin_q5 = -r22
-    cos_q5 = np.sqrt(r02**2 + r12**2)   # positive root (preferred solution)
+    cos_q5 = np.sqrt(r02**2 + r12**2)
+    if wrist_flip:
+        cos_q5 = -cos_q5
 
     SINGULARITY_THRESH = 1e-6
 
@@ -214,14 +239,19 @@ def _extract_wrist_angles(R36: np.ndarray) -> Tuple[float, float, float]:
 
 
 def solve_ik_full(x: float, y: float, z: float,
-                  roll: float = 0, pitch: float = -np.pi/2, yaw: float = 0) -> IKSolution:
+                  roll: float = 0, pitch: float = -np.pi/2, yaw: float = 0,
+                  current_joints: list = None) -> IKSolution:
     """
     Solve full 6-DOF inverse kinematics using kinematic decoupling.
+
+    Enumerates all valid solution branches (2 elbow x 2 wrist configurations)
+    and selects the one nearest to current_joints to avoid discontinuous jumps.
 
     Args:
         x, y, z: Target TCP position in mm
         roll, pitch, yaw: Target TCP orientation in radians (ZYX Euler convention)
                          Default: tool pointing down (-Z direction)
+        current_joints: Optional [q1..q6] in degrees for nearest-solution selection
 
     Returns:
         IKSolution with 6 joint angles in degrees, or error
@@ -241,35 +271,44 @@ def solve_ik_full(x: float, y: float, z: float,
 
     logger.debug(f"IK 6-DOF: Wrist center at ({p_w[0]:.2f}, {p_w[1]:.2f}, {p_w[2]:.2f})")
 
-    # Step 3: Solve position joints (q1, q2, q3)
-    q1, q2, q3, valid, error = _solve_position_joints(p_w[0], p_w[1], p_w[2])
+    # Step 3: Enumerate all solution branches
+    candidates = []
+    last_pos_error = ""
 
-    if not valid:
-        logger.error(f"IK 6-DOF: Position solve failed: {error}")
-        return IKSolution(valid=False, error_msg=error)
+    for elbow_up in [True, False]:
+        q1, q2, q3, valid, error = _solve_position_joints(p_w[0], p_w[1], p_w[2], elbow_up)
+        if not valid:
+            last_pos_error = error
+            continue
 
-    logger.debug(f"IK 6-DOF: Position joints q1={q1:.2f}, q2={q2:.2f}, q3={q3:.2f}")
+        # Compute R_0_3 from FK (guaranteed consistent with FK chain)
+        transforms = compute_all_joint_transforms(q1, q2, q3, 0, 0, 0)
+        R03 = transforms[3][:3, :3]
+        R36 = R03.T @ R_desired
 
-    # Step 4: Compute R_0_3 from FK (guaranteed consistent with FK chain)
-    transforms = compute_all_joint_transforms(q1, q2, q3, 0, 0, 0)
-    R03 = transforms[3][:3, :3]
+        for wrist_flip in [False, True]:
+            q4, q5, q6 = _extract_wrist_angles(R36, wrist_flip)
+            within, _ = check_joint_limits(q1, q2, q3, q4, q5, q6)
+            if not within:
+                continue
+            candidates.append(IKSolution(q1, q2, q3, q4, q5, q6))
 
-    # Step 5: Wrist rotation matrix
-    R36 = R03.T @ R_desired
+    if not candidates:
+        error_msg = last_pos_error or "No valid IK solution in any branch"
+        logger.warning(f"IK 6-DOF: {error_msg}")
+        return IKSolution(valid=False, error_msg=error_msg)
 
-    # Step 6: Extract wrist angles from R_3_6 structure
-    q4, q5, q6 = _extract_wrist_angles(R36)
+    # Step 4: Select best solution
+    if current_joints is not None and len(candidates) > 1:
+        best = min(candidates, key=lambda s: _joint_distance(s, current_joints))
+    else:
+        best = candidates[0]
 
-    # Step 7: Validate joint limits
-    within, limit_err = check_joint_limits(q1, q2, q3, q4, q5, q6)
-    if not within:
-        logger.warning(f"IK 6-DOF: {limit_err}")
-        return IKSolution(valid=False, error_msg=limit_err)
+    logger.info(f"IK 6-DOF: Solution q=({best.q1:.2f}, {best.q2:.2f}, {best.q3:.2f}, "
+                f"{best.q4:.2f}, {best.q5:.2f}, {best.q6:.2f}) "
+                f"[{len(candidates)} candidate(s)]")
 
-    logger.info(f"IK 6-DOF: Solution q=({q1:.2f}, {q2:.2f}, {q3:.2f}, "
-                f"{q4:.2f}, {q5:.2f}, {q6:.2f})")
-
-    return IKSolution(q1, q2, q3, q4, q5, q6, valid=True)
+    return best
 
 
 def solve_ik_position(x: float, y: float, z: float) -> IKSolution:

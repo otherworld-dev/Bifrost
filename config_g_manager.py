@@ -9,6 +9,7 @@ import re
 import logging
 from pathlib import Path
 from typing import Dict, Optional
+import paths
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ JOINT_TO_DRIVES = {
 }
 
 # Default config.g path
-DEFAULT_CONFIG_G_PATH = Path(__file__).parent / 'sys' / 'config.g'
+DEFAULT_CONFIG_G_PATH = paths.get_data_dir() / 'sys' / 'config.g'
 
 # Regex to match M569 lines: M569 P<drive> S<direction> [rest of line]
 _M569_PATTERN = re.compile(r'^(\s*M569\s+P)(\d+)(\s+S)(\d+)(.*)', re.MULTILINE)

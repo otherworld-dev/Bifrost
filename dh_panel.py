@@ -8,12 +8,12 @@ for the Thor robot arm.
 
 import json
 import logging
-from pathlib import Path
+import paths
 from PyQt5 import QtWidgets, QtCore, QtGui
 
 logger = logging.getLogger(__name__)
 
-DH_PARAMS_FILE = Path(__file__).parent / 'dh_parameters.json'
+DH_PARAMS_FILE = paths.get_data_dir() / 'dh_parameters.json'
 
 
 class DHParametersPanel(QtWidgets.QWidget):

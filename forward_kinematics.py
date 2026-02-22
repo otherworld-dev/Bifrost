@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 import logging
 import json
-from pathlib import Path
+import paths
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def load_dh_parameters():
     """Load DH parameters from JSON file"""
     global _dh_params, L1, L2, L3, L4
 
-    dh_file = Path(__file__).parent / 'dh_parameters.json'
+    dh_file = paths.get_data_dir() / 'dh_parameters.json'
 
     try:
         if dh_file.exists():

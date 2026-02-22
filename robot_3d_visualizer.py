@@ -14,6 +14,7 @@ import logging
 import threading
 from pathlib import Path
 import json
+import paths
 
 import forward_kinematics as fk
 
@@ -50,7 +51,7 @@ _stl_cache = {}
 
 def get_stl_directory():
     """Get the STL files directory path"""
-    return Path(__file__).parent / 'STLs'
+    return paths.get_bundle_dir() / 'STLs'
 
 
 def load_stl_mesh(name):

@@ -1,4 +1,5 @@
 import sys
+import paths
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -46,8 +47,6 @@ import serial
 import time
 import json
 import logging
-from pathlib import Path
-
 import numpy as np
 
 # Import simulation hardware (always available for runtime toggle)
@@ -401,7 +400,7 @@ class BifrostGUI(Ui_MainWindow):
             on_base_frame_changed=self._syncBaseTransformToVisualizer,
             on_tool_changed=self._onToolChanged,
         )
-        self.frame_controller.set_config_path(Path("coordinate_frames.json"))
+        self.frame_controller.set_config_path(paths.get_data_dir() / "coordinate_frames.json")
         self.frame_controller.load_frames()
         self._syncBaseTransformToVisualizer()
         self._syncToolOffsetToVisualizer()
@@ -2597,6 +2596,8 @@ class MainWindow(QtWidgets.QMainWindow):
         event.accept()
 
 if __name__ == '__main__':
+    paths.initialize_data_dir()
+
     # Enable High DPI scaling for 4K displays
     QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling, True)
     QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps, True)

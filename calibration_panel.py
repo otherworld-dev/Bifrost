@@ -7,9 +7,9 @@ Consolidates all calibration settings:
 """
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from pathlib import Path
 import json
 import logging
+import paths
 from forward_kinematics import get_dh_params, reload_dh_parameters
 from config_g_manager import JOINT_TO_DRIVES, get_joint_directions, set_joint_direction
 import config
@@ -17,10 +17,10 @@ import config
 logger = logging.getLogger(__name__)
 
 # DH parameters file path
-DH_PARAMS_FILE = Path(__file__).parent / 'dh_parameters.json'
-GRIPPER_CALIBRATION_FILE = Path(__file__).parent / 'gripper_calibration.json'
-HOME_POSITION_FILE = Path(__file__).parent / 'home_position.json'
-PARK_POSITION_FILE = Path(__file__).parent / 'park_position.json'
+DH_PARAMS_FILE = paths.get_data_dir() / 'dh_parameters.json'
+GRIPPER_CALIBRATION_FILE = paths.get_data_dir() / 'gripper_calibration.json'
+HOME_POSITION_FILE = paths.get_data_dir() / 'home_position.json'
+PARK_POSITION_FILE = paths.get_data_dir() / 'park_position.json'
 
 
 def load_gripper_calibration_on_startup():
@@ -932,7 +932,7 @@ class CalibrationPanel(QtWidgets.QWidget):
                         logger.warning(f"Not connected - M569 P{drive} not sent")
 
             # Always persist to config.g (even when not connected)
-            config_g_path = Path(__file__).parent / 'sys' / 'config.g'
+            config_g_path = paths.get_data_dir() / 'sys' / 'config.g'
             set_joint_direction(config_g_path, joint_name, direction)
 
             if commands_sent > 0:
@@ -977,7 +977,7 @@ class CalibrationPanel(QtWidgets.QWidget):
     def load_current_calibration(self):
         """Load direction settings from config.g M569 commands"""
         try:
-            config_g_path = Path(__file__).parent / 'sys' / 'config.g'
+            config_g_path = paths.get_data_dir() / 'sys' / 'config.g'
             directions = get_joint_directions(config_g_path)
 
             for joint_name, direction in directions.items():

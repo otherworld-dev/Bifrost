@@ -1311,6 +1311,12 @@ class BifrostGUI(Ui_MainWindow):
             try:
                 base_frame = self.frame_manager.get_frame("base")
                 self.position_canvas.set_base_world_transform(base_frame.transform)
+                joint_angles = [
+                    self.SpinBoxArt1.value(), self.SpinBoxArt2.value(),
+                    self.SpinBoxArt3.value(), self.SpinBoxArt4.value(),
+                    self.SpinBoxArt5.value(), self.SpinBoxArt6.value()
+                ]
+                self.position_canvas.update_robot(joint_angles)
             except Exception as e:
                 logger.warning(f"Could not sync base transform to visualizer: {e}")
 
@@ -1331,6 +1337,14 @@ class BifrostGUI(Ui_MainWindow):
             try:
                 tool_offset = self.frame_manager.get_active_tool_offset()
                 self.position_canvas.set_tool_offset(tool_offset)
+                # Force immediate redraw — the periodic timer may not reach
+                # the dirty check (e.g. empty position_history when offline)
+                joint_angles = [
+                    self.SpinBoxArt1.value(), self.SpinBoxArt2.value(),
+                    self.SpinBoxArt3.value(), self.SpinBoxArt4.value(),
+                    self.SpinBoxArt5.value(), self.SpinBoxArt6.value()
+                ]
+                self.position_canvas.update_robot(joint_angles)
             except Exception as e:
                 logger.warning(f"Could not sync tool offset to visualizer: {e}")
 

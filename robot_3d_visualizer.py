@@ -548,6 +548,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         self._is_dirty = True  # Needs redraw
         self._last_joint_angles = None  # Cache last angles to detect changes
         self._last_trajectory_length = 0  # Cache trajectory length
+        self._last_options = None  # Cache last display options to detect changes
         self._render_lock = threading.Lock()  # Thread-safe rendering
         self._pending_update = False  # Debounce rapid updates
 
@@ -744,11 +745,13 @@ class Robot3DCanvas(gl.GLViewWidget):
         mounted position/orientation. Invalidates cached base frame visuals."""
         self._base_world_transform = np.array(transform, dtype=np.float64)
         self._base_frame_initialized = False  # Force redraw of base frame axes
+        self._last_joint_angles = None  # Force next periodic update to redraw
 
     def set_tool_offset(self, transform: np.ndarray):
         """Set the active tool offset (relative to TCP flange).
         The TCP indicator and frame axes will be drawn at the tool tip."""
         self._tool_offset = np.array(transform, dtype=np.float64)
+        self._last_joint_angles = None  # Force next periodic update to redraw
 
     def show_home_position(self):
         """Display robot at home position (all joints at 0)"""
@@ -2145,12 +2148,14 @@ class Robot3DCanvas(gl.GLViewWidget):
 
             # OPTIMIZATION: Check if data actually changed
             tcp_trajectory = position_history.get_tcp_trajectory(window_size) if self.show_trajectory else []
-            if not self._has_data_changed(current_angles, len(tcp_trajectory)) and not self.auto_rotate:
+            options_changed = options != self._last_options
+            if not self._has_data_changed(current_angles, len(tcp_trajectory)) and not self.auto_rotate and not options_changed:
                 return
 
             # Data changed - update cache
             self._last_joint_angles = current_angles.copy()
             self._last_trajectory_length = len(tcp_trajectory)
+            self._last_options = options.copy() if options else None
 
             # Extract joint angles as tuple
             joint_angles = (
@@ -2180,6 +2185,12 @@ class Robot3DCanvas(gl.GLViewWidget):
 
                 # Draw TCP coordinate frame
                 self.draw_tcp_frame(*joint_angles, length=50)
+
+                # Draw joint frames if enabled
+                if self.show_joint_frames:
+                    self.draw_joint_frames(*joint_angles)
+                else:
+                    self._clear_joint_frames()
             else:
                 # Robot hidden - remove meshes from scene
                 self._remove_meshes_from_scene()

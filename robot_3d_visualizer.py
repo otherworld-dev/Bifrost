@@ -588,6 +588,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.tcp_frame_items = []
         self.tool_tip_items = []  # GL items for tool tip frame visualization
         self.workspace_item = None
+        self._workspace_mesh_item = None  # Cached accurate workspace mesh
         self.tool_direction_item = None
         self.base_front_item = None
         self.robot_mesh_items = []  # List of 3D mesh items for realistic robot
@@ -853,6 +854,14 @@ class Robot3DCanvas(gl.GLViewWidget):
         else:
             self._clear_joint_frames()
 
+        if self.show_workspace:
+            self.draw_workspace_limits()
+        elif self._workspace_mesh_item is not None and self._workspace_mesh_item in self.items:
+            try:
+                self.removeItem(self._workspace_mesh_item)
+            except Exception:
+                pass
+
     def clear_all_items(self):
         """Remove all graphics items from the view"""
         # Clear all items (including grid)
@@ -865,6 +874,7 @@ class Robot3DCanvas(gl.GLViewWidget):
             self.tool_direction_item,
             self.base_front_item,
             self.workspace_item,
+            self._workspace_mesh_item,
             self.grid_item
         ]
 
@@ -920,6 +930,7 @@ class Robot3DCanvas(gl.GLViewWidget):
         self.tool_direction_item = None
         self.base_front_item = None
         self.workspace_item = None
+        self._workspace_mesh_item = None
         self.grid_item = None
 
     def draw_robot_arm(self, joint_positions, active=True, joint_angles=None):
@@ -1740,63 +1751,91 @@ class Robot3DCanvas(gl.GLViewWidget):
             self.custom_frame_items = {}
 
     def draw_workspace_limits(self):
-        """Draw workspace envelope as semi-transparent cylinder"""
-        workspace = fk.compute_workspace_envelope()
+        """Draw accurate wrist-center workspace as semi-transparent sector mesh."""
+        # Return cached mesh if available and in scene
+        if self._workspace_mesh_item is not None:
+            if self._workspace_mesh_item not in self.items:
+                self.addItem(self._workspace_mesh_item)
+            return
 
-        # Remove old workspace item
-        if self.workspace_item:
-            self.removeItem(self.workspace_item)
+        # Remove legacy workspace item if present
+        if self.workspace_item is not None:
+            try:
+                self.removeItem(self.workspace_item)
+            except Exception:
+                pass
+            self.workspace_item = None
 
-        # Create cylinder mesh
-        radius = workspace['radius']
-        z_min = workspace['z_min']
-        z_max = workspace['z_max']
+        # Compute cross-section boundary
+        cross_section = fk.compute_workspace_cross_section()
+        boundary_rz = cross_section['boundary_rz']
+        j1_min_rad = np.radians(cross_section['j1_min'])
+        j1_max_rad = np.radians(cross_section['j1_max'])
 
-        # Cylinder parameters
-        n_segments = 30
-        theta = np.linspace(0, 2*np.pi, n_segments)
+        N = len(boundary_rz)
+        n_phi = 48  # Angular segments around Z axis
+        phi_angles = np.linspace(j1_min_rad, j1_max_rad, n_phi + 1)
 
-        # Create cylinder surface points
-        n_z = 20
-        z_levels = np.linspace(z_min, z_max, n_z)
-
-        # Create mesh data
+        # --- Build vertices ---
+        # Shell: (n_phi+1) rings of N boundary points each
         verts = []
+        for phi in phi_angles:
+            cos_phi = np.cos(phi)
+            sin_phi = np.sin(phi)
+            for r, z in boundary_rz:
+                verts.append([r * cos_phi, r * sin_phi, z])
+
+        # End cap centroids
+        centroid_r = float(np.mean(boundary_rz[:, 0]))
+        centroid_z = float(np.mean(boundary_rz[:, 1]))
+
+        cap1_center_idx = len(verts)
+        verts.append([centroid_r * np.cos(j1_min_rad),
+                      centroid_r * np.sin(j1_min_rad), centroid_z])
+
+        cap2_center_idx = len(verts)
+        verts.append([centroid_r * np.cos(j1_max_rad),
+                      centroid_r * np.sin(j1_max_rad), centroid_z])
+
+        verts = np.array(verts, dtype=np.float32)
+
+        # --- Build faces ---
         faces = []
 
-        for i, z in enumerate(z_levels):
-            for t in theta:
-                x = radius * np.cos(t)
-                y = radius * np.sin(t)
-                verts.append([x, y, z])
+        # Shell: quads between adjacent rings
+        for i in range(n_phi):
+            ring_a = i * N
+            ring_b = (i + 1) * N
+            for j in range(N):
+                j_next = (j + 1) % N
+                faces.append([ring_a + j, ring_b + j, ring_b + j_next])
+                faces.append([ring_a + j, ring_b + j_next, ring_a + j_next])
 
-        verts = np.array(verts)
+        # End cap 1 (j1_min): fan from centroid to first ring
+        ring_0 = 0
+        for j in range(N):
+            j_next = (j + 1) % N
+            faces.append([cap1_center_idx, ring_0 + j_next, ring_0 + j])
 
-        # Create faces (triangles connecting adjacent rings)
-        for i in range(n_z - 1):
-            for j in range(n_segments - 1):
-                # Two triangles per quad
-                idx1 = i * n_segments + j
-                idx2 = i * n_segments + (j + 1)
-                idx3 = (i + 1) * n_segments + j
-                idx4 = (i + 1) * n_segments + (j + 1)
+        # End cap 2 (j1_max): fan from centroid to last ring
+        ring_last = n_phi * N
+        for j in range(N):
+            j_next = (j + 1) % N
+            faces.append([cap2_center_idx, ring_last + j, ring_last + j_next])
 
-                faces.append([idx1, idx2, idx3])
-                faces.append([idx2, idx4, idx3])
-
-        faces = np.array(faces)
+        faces = np.array(faces, dtype=np.uint32)
 
         # Create mesh item
         mesh_data = gl.MeshData(vertexes=verts, faces=faces)
-        self.workspace_item = gl.GLMeshItem(
+        self._workspace_mesh_item = gl.GLMeshItem(
             meshdata=mesh_data,
-            color=(0, 0, 1, 0.05),  # Very transparent blue
-            shader='edgeHilight',
+            color=(0.2, 0.5, 1.0, 0.08),
+            shader='balloon',
             smooth=True,
-            drawEdges=True,
-            edgeColor=(0, 0, 1, 0.2)
+            drawEdges=False,
+            glOptions='translucent'
         )
-        self.addItem(self.workspace_item)
+        self.addItem(self._workspace_mesh_item)
 
     def _compute_fk_cached(self, q1, q2, q3, q4, q5, q6):
         """
@@ -1842,6 +1881,12 @@ class Robot3DCanvas(gl.GLViewWidget):
         """Invalidate workspace cache (call when DH parameters change)"""
         self._workspace_envelope_cache = None
         self._grid_initialized = False  # Force grid recreation
+        if self._workspace_mesh_item is not None:
+            try:
+                self.removeItem(self._workspace_mesh_item)
+            except Exception:
+                pass
+            self._workspace_mesh_item = None
 
     def _numpy_to_qmatrix4x4(self, np_matrix):
         """
@@ -2217,6 +2262,11 @@ class Robot3DCanvas(gl.GLViewWidget):
             # Draw workspace limits if enabled
             if self.show_workspace:
                 self.draw_workspace_limits()
+            elif self._workspace_mesh_item is not None and self._workspace_mesh_item in self.items:
+                try:
+                    self.removeItem(self._workspace_mesh_item)
+                except Exception:
+                    pass
 
             # Auto-rotate if enabled
             if self.auto_rotate:

@@ -529,6 +529,62 @@ def compute_workspace_envelope() -> dict:
     }
 
 
+def compute_workspace_cross_section(step: float = 2.0) -> dict:
+    """
+    Compute the wrist-center workspace cross-section in the (R, Z) plane.
+
+    Samples the full J2 x J3 grid with J1=J4=J5=J6=0, extracts the TCP
+    position (includes tool offset d6), projects to cylindrical coordinates
+    (R, Z), and finds the convex hull boundary.
+
+    Args:
+        step: Angular resolution in degrees (default 2.0)
+
+    Returns:
+        dict with:
+            'boundary_rz': ndarray (N, 2) ordered boundary in (R, Z)
+            'j1_min': float, J1 lower limit in degrees
+            'j1_max': float, J1 upper limit in degrees
+    """
+    from inverse_kinematics import JOINT_LIMITS
+    from scipy.spatial import ConvexHull
+
+    j1_min, j1_max = JOINT_LIMITS[1]
+    j2_min, j2_max = JOINT_LIMITS[2]
+    j3_min, j3_max = JOINT_LIMITS[3]
+
+    j2_range = np.arange(j2_min, j2_max + step / 2, step)
+    j3_range = np.arange(j3_min, j3_max + step / 2, step)
+
+    # Sample full J2 x J3 grid — TCP projected to (R, Z)
+    points = []
+    for j2 in j2_range:
+        for j3 in j3_range:
+            positions = compute_all_joint_positions(0, j2, j3, 0, 0, 0)
+            tcp = positions[-1]  # TCP (includes tool offset d6)
+            r = np.sqrt(tcp[0] ** 2 + tcp[1] ** 2)
+            z = tcp[2]
+            points.append((r, z))
+
+    pts = np.array(points, dtype=np.float64)
+
+    # Convex hull gives the outer boundary as ordered vertices
+    hull = ConvexHull(pts)
+    boundary = pts[hull.vertices]
+
+    # Sort boundary vertices by angle around centroid for consistent winding
+    centroid = boundary.mean(axis=0)
+    angles = np.arctan2(boundary[:, 1] - centroid[1], boundary[:, 0] - centroid[0])
+    order = np.argsort(angles)
+    boundary = boundary[order]
+
+    return {
+        'boundary_rz': boundary,
+        'j1_min': j1_min,
+        'j1_max': j1_max,
+    }
+
+
 def get_home_position():
     """
     Get robot positions for home configuration (all joints at 0°)
